@@ -72,3 +72,9 @@ def id_generator(size=4, chars="ABCDEFHIJKLMNOPQRSTUVWXYZ1234567890"):
 
 def remove_client(client : dict, list : list) -> list :
     return [d for d in list if d.get('id') != client['id']]
+
+def wrap_pos(pos) :
+    min = 0
+    max = 7
+    range = max - min + 1
+    return[(((pos[0] - min) % range) + range) % range + min, pos[1]]
