@@ -67,7 +67,7 @@ class Orb(Game_client) :
     
     def set_status(self, status)     :
         self.status = status
-        self.server.send_packet_list(self.player_on_orb_sockets, {'type' : MESSAGE_TYPE.ORB_DATA, 'orb_data' : self.get_data()})
+        self.server.send_packet_list(self.client_on_orb, {'type' : MESSAGE_TYPE.ORB_DATA, 'orb_data' : self.get_data()})
     
     def reset(self) : self.send_packet({'type' : MESSAGE_TYPE.ORB_RESET}) 
     

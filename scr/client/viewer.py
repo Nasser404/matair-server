@@ -7,7 +7,7 @@ class Viewer(Game_client) :
         
         
     def connected_to_server(self) :
-        print("AAAAAAAAAAAAAAAAA")
+        
         self.send_packet({'type' : MESSAGE_TYPE.VIEWER_CONNECT, 'game_info_list' : self.server.get_game_list()})
     
     def disconnected_from_server(self) :

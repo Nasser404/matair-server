@@ -28,6 +28,7 @@ class Pawn(Piece) :
         # en passant left
         
         if (not self.cell_empty([x + 1, y])) :
+ 
             piece = self.get_piece([x + 1, y])
             if (piece.get_color() != self.color) :
                 if (piece.get_type() == PIECE_TYPE.PAWN) :
@@ -43,4 +44,6 @@ class Pawn(Piece) :
                     if (piece.get_pos()[1] == piece.get_last_pos()[1] + 2 * piece.forward) :
                         self.add_move([x - 1, y + self.forward])
                         self.en_passant = wrap_pos([x - 1, y + self.forward])
+                        
+                        
         return self.moves

@@ -1,10 +1,11 @@
 from scr.config import MESSAGE_TYPE, DISCONNECT_REASONS, id_generator,CLIENT_TYPE, PIECE_COLOR, remove_client
 from datetime import datetime
 from random import choice
+from scr.chess_game.chess_board import Chess_board
 class Game :
     def __init__(self, server, game_id = id_generator(), local_game = False, virtual_game = False):
-        self.board = None
-        #self.board.
+        self.board = Chess_board()
+
         
         self.game_id = game_id
         self.server = server
@@ -23,7 +24,7 @@ class Game :
     
     def get_info(self) : 
         white_client = self.get_client_instance(self.client_colors[PIECE_COLOR.WHITE])
-        black_client = self.get_client_instance(self.client_colors[PIECE_COLOR.WHITE])
+        black_client = self.get_client_instance(self.client_colors[PIECE_COLOR.BLACK])
         if (self.virtual_game) or (self.local_game) :
             white_player_name = "" if white_client == None else white_client.get_name()
             black_player_name = "" if black_client == None else black_client.get_name()
@@ -57,9 +58,9 @@ class Game :
         
         
     def get_number_of_player(self)  : return len(self.connected_player_clients)
-    def get_number_of_viewer(self)  : return len(self.conencted_viewer_clients)
+    def get_number_of_viewer(self)  : return len(self.connected_viewer_clients)
     def get_game_id(self)           : return self.game_id
-    def get_day_of_last_move(self)  : return self.get_day_of_last_move
+    def get_day_of_last_move(self)  : return self.day_of_last_move
     def get_board_string(self)      : return self.board.get_board_string()
     def is_local_game(self)         : return self.local_game
     def is_virtual_game(self)       : return self.virtual_game
@@ -67,12 +68,15 @@ class Game :
     def game_ended(self)-> bool     : return self.board.game_ended
     def get_number_of_turn(self)    : return self.board.number_of_turn
     def get_game_turn(self)         : return self.board.turn
-    def is_move_legal(self, from_pos : list, to_pos : list) : return self.board.check_move(from_pos, to_pos)
+    def is_move_legal(self, from_pos : list, to_pos : list) : return self.board.check_move_valid(from_pos, to_pos)
       
-    def get_client_instance(self, client) : return self.server.clients_instance[client['id']]
+    def get_client_instance(self, client) : 
+        if client == None : return None
+
+        return self.server.clients_instance[client['id']]
     
     def game_joinable(self) :
-        return (self.get_number_of_player < 2) and (not self.game_ended())
+        return (self.get_number_of_player() < 2) and (not self.game_ended())
     
 
     def connect_client(self, client) :
@@ -80,14 +84,14 @@ class Game :
         client_type = client_instance.get_type()
         
         client_instance.set_connected_game_id(self.game_id)
-        
+        self.connected_clients.append(client)
         match(client_type) :
             case CLIENT_TYPE.ORB :
                 if (not self.local_game) and (not self.virtual_game) : self.give_client_color(client)
                 self.connected_orb_clients.append(client)
                 
             case CLIENT_TYPE.VIEWER :
-                self.conencted_viewer_clients.append(client)
+                self.connected_viewer_clients.append(client)
                 
             case CLIENT_TYPE.PLAYER :
                 if (self.virtual_game) or (self.local_game) : self.give_client_color(client)
@@ -153,9 +157,10 @@ class Game :
         can_do_move = False
         
         color    = move_data['color']
-        from_pos = move_data['from']
-        to_pos   = move_data['to']
+        from_pos = [int(i) for i in move_data['from']]
+        to_pos   = [int(i) for i in move_data['to']]
         
+
         if ((client['id'] in [_client_['id'] for _client_ in self.connected_player_clients])):
             if (self.get_game_turn() == color) :
                 if (self.is_move_legal(from_pos, to_pos)) :
@@ -172,6 +177,7 @@ class Game :
             'color' :  client_instance.get_color(),
             'force_update' : True}
             client_instance.send_packet(data_packet)
+
             
     def close(self) :
         for client in self.connected_clients :

@@ -67,6 +67,7 @@ class PIECE_COLOR(IntEnum) :
     WHITE = 0
     BLACK = 1
 
+
 def id_generator(size=4, chars="ABCDEFHIJKLMNOPQRSTUVWXYZ1234567890"):
     return ''.join(random.choice(chars) for _ in range(size))
 

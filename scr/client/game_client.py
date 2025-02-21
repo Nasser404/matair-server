@@ -17,9 +17,9 @@ class Game_client() :
     def get_type(self)              : return self.type
     def get_connected_game_id(self) : return self.connected_game_id
     def get_color(self)             : return self.color
-    def get_id(self)                : return self.client['id']
+
     def get_name(self)     : return self.name
-    def is_in_game(self) -> bool    : return (self.connected_game_id == None)
+    def is_in_game(self) -> bool    : return (self.connected_game_id != None)
     def get_game(self)              : return None if (self.connected_game_id == None) else self.server.games[self.connected_game_id]
     
     def get_client_instance(self, client):
@@ -38,7 +38,7 @@ class Game_client() :
         self.set_color(None)
         self.set_connected_game_id(None)
         
-        self.send_packet({'type' : MESSAGE_TYPE.GAME_DISCONNECT})
+        #self.send_packet({'type' : MESSAGE_TYPE.GAME_DISCONNECT})
     
     
      
