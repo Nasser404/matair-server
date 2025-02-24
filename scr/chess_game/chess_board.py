@@ -181,7 +181,7 @@ class Chess_board() :
         
     
     def is_checked(self, color) :
-        possible_enemy_move = self.square_reached[color]
+        possible_enemy_move = self.square_reached[not color]
         
         #FIND KING COORDINATES
         king_coord = []

@@ -1,5 +1,5 @@
 from scr.config import  MESSAGE_TYPE, DISCONNECT_REASONS
-
+from time import time
 class Game_client() :
     def __init__(self, client, server, type = None):
         self.server             = server
@@ -9,6 +9,7 @@ class Game_client() :
         self.connected_game_id  = None
         self.color              = None
         self.name               = ""
+        self.last_response      = time()
         
     def send_packet(self, data:dict) :
         self.server.send_packet(self.client, data)
@@ -23,14 +24,14 @@ class Game_client() :
     def get_game(self)              : return None if (self.connected_game_id == None) else self.server.games[self.connected_game_id]
     
     def get_client_instance(self, client):
-        return self.server.clients_instance[client['id']]
+        return None if client == None else self.server.clients_instance.get(client['id'], None)
     
 
     def set_color(self, color) : self.color = color
     def set_name(self, name)   : self.name  = name
     def set_connected_game_id(self, connected_game_id) : self.connected_game_id = connected_game_id
     
-    def ask_disconnect(self, client, reason = DISCONNECT_REASONS.NO_REASON) : self.server.disconnect_client(client, reason)
+    def ask_disconnect(self, client, reason = DISCONNECT_REASONS.NO_REASON) : self.server.disconnect_client(client, reason=reason)
     
     def disconnect_from_game(self) :
         game = self.get_game()

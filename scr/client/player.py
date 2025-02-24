@@ -18,7 +18,7 @@ class Player(Game_client) :
      
     def get_orb(self):
         if (self.connnected_orb_id==None) : return None
-        orb_client = self.server.orbs[self.connnected_orb_id]
+        orb_client = self.server.orbs.get(self.connnected_orb_id, None)
         return self.get_client_instance(orb_client)
     
     def set_connected_orb_id(self, orb_id) : self.connnected_orb_id = orb_id

@@ -1,5 +1,5 @@
-from scr.config import MESSAGE_TYPE, DISCONNECT_REASONS, CLIENT_TYPE, SERVER_PORT, id_generator,remove_client
-import logging
+from scr.config import MESSAGE_TYPE, DISCONNECT_REASONS, CLIENT_TYPE, SERVER_PORT, id_generator,remove_client, MAX_MISSED_PINGS, PING_INTERVAL
+from logging import INFO
 import json
 from websocket_server import WebsocketServer,CLOSE_STATUS_NORMAL,DEFAULT_CLOSE_REASON
 from .game import Game
@@ -7,22 +7,24 @@ from ..client.game_client import Game_client
 from ..client.orb import Orb
 from ..client.player import Player
 from ..client.viewer import Viewer
-FAL = 8
+from time import time, sleep
+from threading import Thread
 class Server :
     def __init__(self):
         self.server = None
-        self.clients_instance = {};         # struct linking all client using their id to their client instance 
+        self.clients_instance = {}        # dict linking all client using their id to their client instance 
         
-        self.players_client    = [];      # store all players currently connected
-        self.orbs_client       = [];      # store all orbs currently connected
-        self.viewers_client    = [];      # store all viewers currently connected
+        self.all_client        = []
+        self.players_client    = []       # store all players currently connected
+        self.orbs_client       = []       # store all orbs currently connected
+        self.viewers_client    = []       # store all viewers currently connected
         self.games = {}                   # store all ongoing games
         self.orbs  = {}                   # store all orbs ref using their orb_id
         
         
         self.data_handlers = {
             MESSAGE_TYPE.IDENTIFICATION      : self.handle_client_identification,    
-            MESSAGE_TYPE.PONG                : None,
+            MESSAGE_TYPE.PONG                : self.handle_pong,
             MESSAGE_TYPE.ORB_DATA            : self.handle_orb_data,
             MESSAGE_TYPE.ORB_CONNECT         : self.handle_orb_connect,
             MESSAGE_TYPE.PLAYER_CONNECT      : self.handle_player_connect,
@@ -38,67 +40,142 @@ class Server :
  
     
     def create(self) :
-        self.server = WebsocketServer(host="0.0.0.0", port=SERVER_PORT, loglevel=logging.INFO)
+        self.server = WebsocketServer(host="0.0.0.0", port=SERVER_PORT, loglevel=INFO)
         self.server.set_fn_new_client(self.handle_client_connect)
         self.server.set_fn_client_left(self.handle_client_disconnect)
         self.server.set_fn_message_received(self.handle_client_data)
+        
+        ping_thread = Thread(target=self.send_ping, daemon=True)      
+        ping_thread.start()
+        
         self.server.run_forever()
         
     def close(self) :
         self.server.shutdown_gracefully()
         
+        
     def send_packet(self, client, data : dict) :
-        print(f"Sending : {data}")
+        if client == None : return
+        
+        #print(f"Sending : {data}")
         message = json.dumps(data)
         self.server.send_message(client, message)  
     
     def send_packet_list(self, client_list : list, data : dict) :
-        print(f"Sending to list : {data}")
+        #print(f"Sending to list : {data}")
         message = json.dumps(data)
-        for client in client_list : self.server.send_message(client, message)
+        
+        for client in client_list : 
+            if client == None : continue
+            self.server.send_message(client, message)
+        
         
     def handle_client_connect(self, client, server) :
-        print(f"{len(self.server.clients)} client connected !")
+        #print(f"{len(self.server.clients)} client connected !")
         self.send_packet(client, {"type" : MESSAGE_TYPE.IDENTIFICATION})
-    
+
+        self.all_client.append(client)
         print(f"{client['id']} connected !")
         
         
     def handle_client_disconnect(self, client, server) :
-
+        
         client_instance = self.get_client_instance(client)
         if (client_instance != None) :
              client_instance.disconnected_from_server()   
         self.remove_client_ref(client)
 
+    def disconnect_client(self, client, data=None, reason = DISCONNECT_REASONS.NO_REASON) :
+        if (client == None) : return
+        
+        self.send_packet(client, data={'type' : MESSAGE_TYPE.DISCONNECT_REASON, 'reason' : reason})
+        client["handler"].send_close(CLOSE_STATUS_NORMAL, DEFAULT_CLOSE_REASON)   
+        
+        
+    def terminate_client(self, client) :
+        if (client == None) : return
+        
+        handler = client['handler']
+        handler.keep_alive = False
+        handler.finish()
+        handler.connection.close()
     
+         
+    def remove_client_ref(self, client) :
+        if (client == None) : return
+        
+        print(f"removing client ref {client}")
+        if client['id'] in self.clients_instance.keys() :  del self.clients_instance[client['id']]
+        self.orbs_client   = remove_client(client, self.orbs_client)
+        self.viewers_client= remove_client(client, self.viewers_client)
+        self.players_client= remove_client(client, self.players_client)
+        self.all_client    = remove_client(client, self.all_client)
+        
+        
     def handle_client_data(self, client, server, message) :
+        if client == None : return
+        if (client['id'] not in [c['id'] for c in self.all_client]) : return
+        
         message = message.strip().rstrip("\x00") 
         
         data = json.loads(message)
         data_type = data['type']
         print(f"RECEIVED : {data}")
-        self.data_handlers[data_type](client, data)
-        
-    def remove_client_ref(self, client) :
-        
-        if client['id'] in self.clients_instance.keys() :  del self.clients_instance[client['id']]
-        self.orbs_client   = remove_client(client, self.orbs_client)
-        self.viewers_client= remove_client(client, self.viewers_client)
-        self.players_client= remove_client(client, self.players_client)
-        
-    def disconnect_client(self, client, data=None, reason = DISCONNECT_REASONS.NO_REASON) :
-        client["handler"].send_close(CLOSE_STATUS_NORMAL, DEFAULT_CLOSE_REASON)
-  
- 
-        
-
+        self.data_handlers[data_type](client, data)    
         
         
     
     def get_client_instance(self, client)-> Game_client :
-        if (client == None) : return None
-        return self.clients_instance.get(client['id'], None)
+        return None if (client == None) else self.clients_instance.get(client['id'], None)
+    
+    
+    def send_ping(self) :
+        print("PING THREAD STARTED")
+        while True:
+            sleep(PING_INTERVAL)
+            current_time = time()
+            
+            disconnected_clients = []
+
+            for client_id, client_instance in self.clients_instance.items():  
+                last_response = client_instance.last_response
+
+                if current_time - last_response > PING_INTERVAL * MAX_MISSED_PINGS:
+                    print(f"Client {client_id} timed out")
+                    disconnected_clients.append(client_instance.client)
+                else:
+                    try:
+                        client_instance.send_packet({'type' : MESSAGE_TYPE.PING})
+                    except Exception:
+                        disconnected_clients.append(client_instance.client)
+
+            for client in disconnected_clients:
+                self.terminate_client(client)
+           
+    def create_game(self, game_id = id_generator(), local_game = False, virtual_game = False) :
+        self.games[game_id] = Game(self, game_id, local_game, virtual_game)
+        self.send_packet_list(self.viewers_client, {'type' : MESSAGE_TYPE.GAME_LIST, 'game_info_list' : self.get_game_list()})
+        return self.games[game_id]
+    
+    def close_game(self, game_id) :
+        game = self.games[game_id]
+        game.close()
+        del self.games[game_id]
+        self.send_packet_list(self.viewers_client, {'type' : MESSAGE_TYPE.GAME_LIST, 'game_info_list' : self.get_game_list()})
+    
+    def get_game_list(self) :
+            game_info_list = []
+            for game in self.games.values() :
+                game_info_list.append(game.get_info())
+            return game_info_list            
+            
+
+        
+    def handle_pong(self, client, data) :
+        client_instance = self.get_client_instance(client) 
+        if client_instance != None :
+            client_instance.last_response = time()     
+
     
     def handle_client_identification(self, client, data : dict) :
         identifier = data['identifier']
@@ -118,24 +195,6 @@ class Server :
     
     
 
-    
-    def create_game(self, game_id = id_generator(), local_game = False, virtual_game = False) :
-        self.games[game_id] = Game(self, game_id, local_game, virtual_game)
-        self.send_packet_list(self.viewers_client, {'type' : MESSAGE_TYPE.GAME_LIST, 'game_info_list' : self.get_game_list()})
-        return self.games[game_id]
-    
-    def close_game(self, game_id) :
-        game = self.games[game_id]
-        game.close()
-        del self.games[game_id]
-        self.send_packet_list(self.viewers_client, {'type' : MESSAGE_TYPE.GAME_LIST, 'game_info_list' : self.get_game_list()})
-    
-    def get_game_list(self) :
-            game_info_list = []
-            for game in self.games.values() :
-                game_info_list.append(game.get_info())
-            return game_info_list
-    
     def handle_orb_connect(self, client, data) :
         orb_id = data['orb_id']
         orb_code = data['orb_code']
@@ -154,18 +213,21 @@ class Server :
         orb.set_status(status)
         orb.set_code(orb_code)
         
-    def handle_move_asked(self, client, data) :
-        game_id = data['game_id']
-        game = self.games.get(game_id, None)
-        if (game == None) : self.disconnect_client(client)
-        else : game.move_asked(client, data)
-        
     def handle_orb_list(self, client, data) :
         orb_list = []
         for orb_client in self.orbs_client :
             orb = self.get_client_instance(orb_client)
             orb_list.append(orb.get_simple_data())
         self.send_packet(client, {'type': MESSAGE_TYPE.ORB_LIST, 'orb_list' : orb_list})
+        
+        
+    def handle_move_asked(self, client, data) :
+        game_id = data['game_id']
+        game = self.games.get(game_id, None)
+        if (game == None) : self.disconnect_client(client)
+        else : game.move_asked(client, data)
+        
+
         
     def handle_player_connect(self, client, data) :
         player_orb_code = data['player_orb_code']

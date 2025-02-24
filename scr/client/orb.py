@@ -17,7 +17,7 @@ class Orb(Game_client) :
     
     def disconnected_from_server(self) :
         self.disconnect_from_game()
-        for client in self.client_on_orb : self.ask_disconnect(client, DISCONNECT_REASONS.ORB_DISCONNECTED)
+        for client in self.client_on_orb : self.ask_disconnect(client, reason=DISCONNECT_REASONS.ORB_DISCONNECTED)
         del self.server.orbs[self.orb_id]
         
     def get_orb_id(self) : return self.orb_id

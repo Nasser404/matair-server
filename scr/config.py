@@ -2,6 +2,8 @@ from enum import IntEnum
 import random
 SERVER_PORT         = 29920
 ORB_CODE_LENGHT     = 4
+PING_INTERVAL       = 3  
+MAX_MISSED_PINGS    = 3 
 
 
 class MESSAGE_TYPE(IntEnum):
