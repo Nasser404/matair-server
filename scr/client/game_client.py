@@ -10,7 +10,7 @@ class Game_client() :
         self.color              = None
         self.name               = ""
         self.last_response      = time()
-        
+
     def send_packet(self, data:dict) :
         self.server.send_packet(self.client, data)
     
@@ -21,7 +21,7 @@ class Game_client() :
 
     def get_name(self)     : return self.name
     def is_in_game(self) -> bool    : return (self.connected_game_id != None)
-    def get_game(self)              : return None if (self.connected_game_id == None) else self.server.games[self.connected_game_id]
+    def get_game(self)              : return None if (self.connected_game_id == None) else self.server.games.get(self.connected_game_id, None)
     
     def get_client_instance(self, client):
         return None if client == None else self.server.clients_instance.get(client['id'], None)
@@ -34,11 +34,14 @@ class Game_client() :
     def ask_disconnect(self, client, reason = DISCONNECT_REASONS.NO_REASON) : self.server.disconnect_client(client, reason=reason)
     
     def disconnect_from_game(self) :
+
+        
         game = self.get_game()
         if (game != None) : game.disconnect_client(self.client)
-        self.set_color(None)
-        self.set_connected_game_id(None)
+        self.set_color(color=None)
+        self.set_connected_game_id(connected_game_id=None)
         
+      
         #self.send_packet({'type' : MESSAGE_TYPE.GAME_DISCONNECT})
     
     

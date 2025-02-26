@@ -35,12 +35,16 @@ class MESSAGE_TYPE(IntEnum):
     ORB_CONTINUE_GAME=17
     ORB_END_GAME    = 18
     
-    DISCONNECT_FROM_SERVER = 19    
+    DISCONNECT_FROM_SERVER = 19  
+    INFORMATION            = 20 
     
 class CLIENT_TYPE(IntEnum) :
     ORB     = 0
     PLAYER  = 1
     VIEWER  = 2
+
+class INFORMATION_TYPE(IntEnum) :
+    ORB_NOT_READY     = 0
 
 
 class DISCONNECT_REASONS(IntEnum) :

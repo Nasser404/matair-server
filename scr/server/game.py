@@ -20,23 +20,34 @@ class Game :
         
         self.client_colors = [None, None]
         self.chat_history  = []
-        
+        self.closed = False
     
     def get_info(self) : 
         white_client = self.get_client_instance(self.client_colors[PIECE_COLOR.WHITE])
         black_client = self.get_client_instance(self.client_colors[PIECE_COLOR.BLACK])
+        
         if (self.virtual_game) or (self.local_game) :
             white_player_name = "" if white_client == None else white_client.get_name()
             black_player_name = "" if black_client == None else black_client.get_name()
             
-            white_orb_name    = "" if (not self.local_game) else self.get_client_instance(self.client_colors[0]).get_name()
+            white_orb_name = ""
+            if (len(self.connected_orb_clients)>0) and (self.local_game) : 
+                white_orb_name    =  self.get_client_instance(self.connected_orb_clients[0]).get_name()
+                
             black_orb_name    = white_orb_name
         else :
+            print(self.client_colors)
             white_orb_name = "" if white_client == None else white_client.get_name()
             black_orb_name = "" if black_client == None else black_client.get_name()
             
-            white_player = self.get_client_instance(self.connected_orb_clients[0]).get_main_client()
-            black_player = self.get_client_instance(self.connected_orb_clients[1]).get_main_client()
+            
+            
+            white_player = None
+            black_player = None
+            if (len(self.connected_orb_clients) >=2) :
+                white_player = self.get_client_instance(self.get_client_instance(self.client_colors[PIECE_COLOR.WHITE]).get_main_client())
+                black_player = self.get_client_instance(self.get_client_instance(self.client_colors[PIECE_COLOR.BLACK]).get_main_client())
+                
             white_player_name = "" if white_player == None else white_player.get_name()
             black_player_name = "" if black_player == None else black_player.get_name()
             
@@ -54,6 +65,7 @@ class Game :
             'winner'            : self.board.winner,
             'day_of_last_move'  : self.get_day_of_last_move(),
         }
+        print(data_packet)
         return data_packet
         
         
@@ -88,6 +100,7 @@ class Game :
         match(client_type) :
             case CLIENT_TYPE.ORB :
                 if (not self.local_game) and (not self.virtual_game) : self.give_client_color(client)
+                client_instance.update_data_to_client()
                 self.connected_orb_clients.append(client)
                 
             case CLIENT_TYPE.VIEWER :
@@ -101,6 +114,7 @@ class Game :
                     client_instance.set_color(orb_color)
                     
                 self.connected_player_clients.append(client)
+               
 
         data_packet = {'type' : MESSAGE_TYPE.GAME_DATA,
                   'info' : self.get_info(),
@@ -119,7 +133,7 @@ class Game :
         self.server.send_packet_list(other_client_list, info_packet)
         
     def give_client_color(self, client) :
-        
+
         color_choice = [i for i in range(len(self.client_colors)) if self.client_colors[i] == None]
         color = choice(color_choice)
         self.client_colors[color] = client
@@ -127,30 +141,48 @@ class Game :
         client_instance = self.get_client_instance(client)
         client_instance.set_color(color)
         
+    
+    
+    def get_number_of_orb(self) :
+        return len(self.connected_orb_clients)
+    
     def disconnect_client(self, client) :
-        
-        if (client['id'] in [_client_['id'] for _client_ in self.connected_orb_clients]) : self.server.close_game(self.game_id)
+    
         
         
         client_instance = self.get_client_instance(client)
         client_instance_color    = client_instance.get_color()
-        if (client_instance_color!=None) : self.client_colors[client_instance_color] = None
+        
+        if (client_instance_color!=None) and (self.virtual_game or self.local_game) : self.client_colors[client_instance_color] = None
         
         self.connected_clients          =  remove_client(client, self.connected_clients)
         self.connected_player_clients   =  remove_client(client, self.connected_player_clients)
         self.connected_viewer_clients   =  remove_client(client, self.connected_viewer_clients)
         self.connected_orb_clients      =  remove_client(client, self.connected_orb_clients)
         
-        if (self.get_number_of_player() < 2) and (self.get_number_of_turn() > 4) :
-            self.board.game_ended = True
-            self.board.winner = PIECE_COLOR.WHITE if (self.client_colors[PIECE_COLOR.BLACK] == None) else PIECE_COLOR.BLACK
-            
-            
-        if (self.get_number_of_player()<=0) : 
-            self.server.close_game(self.game_id)
-            return
         
-        self.server.send_packet_list(self.connected_clients, {'type' :MESSAGE_TYPE.GAME_INFO,'info':self.get_info()})
+        if (self.virtual_game) : # VIRTUAL GAME
+            if (self.get_number_of_player() < 2) and (self.get_number_of_turn() > 4) :
+                self.board.game_ended = True
+                self.board.winner = PIECE_COLOR.WHITE if (self.client_colors[PIECE_COLOR.BLACK] == None) else PIECE_COLOR.BLACK
+                
+            if (self.get_number_of_player()<=0) : 
+                self.close()
+                return
+            
+        else :
+            if (self.local_game) : # LOCAL GAME
+                if (self.get_number_of_orb() < 1) :
+                    self.close()
+                    return
+            else : # NORMAL GAME
+                if (self.get_number_of_orb() < 2) :
+                    self.close()
+                    return
+               
+            
+        info = self.get_info()
+        self.server.send_packet_list(self.connected_clients, {'type' :MESSAGE_TYPE.GAME_INFO,'info':info})
     
     
     def move_asked(self, client, move_data) :
@@ -180,8 +212,13 @@ class Game :
 
             
     def close(self) :
+        if self.closed : return
+        
         for client in self.connected_clients :
             client_instance = self.get_client_instance(client)
             client_instance.disconnect_from_game()
+        
+        self.server.close_game(self.game_id)
+        self.closed = True
 
                 
