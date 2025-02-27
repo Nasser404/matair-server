@@ -1,5 +1,7 @@
-from .piece_type import Piece
-from scr.config import PIECE_COLOR, PIECE_TYPE, wrap_pos
+from scr.chess_game.piece.piece_type    import Piece
+from scr.enums                          import PIECE_COLOR, PIECE_TYPE
+from scr.utils                          import wrap_pos
+
 class Pawn(Piece) :
     def __init__(self, pos, color, board):
         super().__init__("Pawn", pos, PIECE_TYPE.PAWN, color, board)

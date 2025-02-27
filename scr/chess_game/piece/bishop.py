@@ -1,5 +1,7 @@
-from .piece_type import Piece
-from scr.config import PIECE_COLOR, PIECE_TYPE
+from scr.chess_game.piece.piece_type    import Piece
+from scr.enums                          import PIECE_COLOR, PIECE_TYPE
+from scr.utils                          import wrap_pos
+
 class Bishop(Piece) :
     def __init__(self, pos, color, board):
         super().__init__("Bishop", pos, PIECE_TYPE.BISHOP, color, board)

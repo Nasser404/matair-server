@@ -1,5 +1,5 @@
-from .game_client import Game_client
-from scr.config import CLIENT_TYPE, MESSAGE_TYPE
+from scr.client.game_client import Game_client
+from scr.enums              import CLIENT_TYPE, MESSAGE_TYPE
 
 class Player(Game_client) :
     def __init__(self, client, server, type= CLIENT_TYPE.PLAYER):

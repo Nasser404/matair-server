@@ -1,7 +1,9 @@
-from scr.config import MESSAGE_TYPE, DISCONNECT_REASONS, id_generator,CLIENT_TYPE, PIECE_COLOR, remove_client
-from datetime import datetime
-from random import choice
+from scr.utils                  import remove_client, id_generator
+from scr.enums                  import MESSAGE_TYPE, CLIENT_TYPE, PIECE_COLOR
+from datetime                   import datetime
+from random                     import choice
 from scr.chess_game.chess_board import Chess_board
+
 class Game :
     def __init__(self, server, game_id = id_generator(), local_game = False, virtual_game = False):
         self.board = Chess_board()
@@ -209,7 +211,9 @@ class Game :
             'color' :  client_instance.get_color(),
             'force_update' : True}
             client_instance.send_packet(data_packet)
-
+    def add_message(self, message) :
+        self.chat_history.append(message)
+        self.server.send_packet_list(self.connected_clients, {'type' : MESSAGE_TYPE.GAME_CHAT, 'message' : message})
             
     def close(self) :
         if self.closed : return

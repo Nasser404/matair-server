@@ -1,6 +1,18 @@
-# matair-server
- matair project - python server
- 
+from random import choice
+
+def id_generator(size=4, chars="ABCDEFHIJKLMNOPQRSTUVWXYZ1234567890"):
+    return ''.join(choice(chars) for _ in range(size))
+
+def remove_client(client : dict, list : list) -> list :
+    return [d for d in list if d.get('id') != client['id']]
+
+def wrap_pos(pos) :
+    min = 0
+    max = 7
+    range = max - min + 1
+    return[(((pos[0] - min) % range) + range) % range + min, pos[1]]
+
+CREDIT ="""
                                          _        _                                                                      
                                         | |      (_)                                                                     
   ______ ______ ______   _ __ ___   __ _| |_ __ _ _ _ __      ___  ___ _ ____   _____ _ __   ______ ______ ______ ______ 
@@ -28,10 +40,5 @@
                                                                                                                          
                                                                                                                          
   ______ ______ ______ ______ ______ ______ ______ ______ ______ ______ ______ ______ ______ ______ ______ ______ ______ 
- |______|______|______|______|______|______|______|______|______|______|______|______|______|______|______|______|______|
-
- A websocket server written in python for our project mat@ir
-                                                                                                                         
-                                                                                                                         
-                                                                                                                         
-                                                                                                                         
+ |______|______|______|______|______|______|______|______|______|______|______|______|______|______|______|______|______|                                                                                                                  
+"""

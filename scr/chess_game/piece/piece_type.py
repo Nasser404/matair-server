@@ -1,5 +1,7 @@
-from scr.config import PIECE_COLOR, wrap_pos
-import numpy as np
+from scr.enums      import PIECE_COLOR
+from scr.utils      import wrap_pos
+from numpy          import array_equal
+
 class Piece() :
     def __init__(self, name, pos, type, color, board):
         self.name           = name
@@ -30,7 +32,7 @@ class Piece() :
     
     
     def add_move(self, move) :
-        if (not np.array_equal(move, self.pos)) : self.moves.append(wrap_pos(move))
+        if (not array_equal(move, self.pos)) : self.moves.append(wrap_pos(move))
     
     def on_team(self, pos) :
         if (pos[1] > 7) or (pos[1] < 0)  : return True

@@ -1,11 +1,13 @@
-from .piece.pawn    import Pawn
-from .piece.knight  import Knight
-from .piece.bishop  import Bishop
-from .piece.rook    import Rook
-from .piece.queen   import Queen
-from .piece.king    import King
-from scr.config import PIECE_COLOR, PIECE_TYPE, wrap_pos
-import numpy as np
+from scr.chess_game.piece.pawn      import Pawn
+from scr.chess_game.piece.knight    import Knight
+from scr.chess_game.piece.bishop    import Bishop
+from scr.chess_game.piece.rook      import Rook
+from scr.chess_game.piece.queen     import Queen
+from scr.chess_game.piece.king      import King
+from scr.enums                      import PIECE_COLOR, PIECE_TYPE
+from scr.utils                      import wrap_pos
+from numpy                          import array_equal
+
 class Chess_board() :
     def __init__(self):
         self.grid = [[None for i in range(8)] for j in range(8)]
@@ -136,20 +138,20 @@ class Chess_board() :
 
         # EN PASSANT
         if (piece.get_type() == PIECE_TYPE.PAWN) :
-            if np.array_equal(to_pos,piece.en_passant) :
+            if array_equal(to_pos,piece.en_passant) :
                 pawn_affected = [to_pos[0], to_pos[1] - piece.forward]
                 self.piece_captured(pawn_affected)
         #CASTLE 
         elif (piece.get_type() == PIECE_TYPE.KING) :
             king_pos = piece.get_pos()
-            if (np.array_equal(to_pos, piece.right_castle)) :
+            if (array_equal(to_pos, piece.right_castle)) :
     
                 rook_affected = [king_pos[0]+3, king_pos[1]]
                 new_rook_pos  = [king_pos[0]+1, king_pos[1]]
                 self.move_piece(rook_affected, new_rook_pos, False)
         
                 
-            if (np.array_equal(to_pos, piece.left_castle)) :
+            if (array_equal(to_pos, piece.left_castle)) :
                 rook_affected = [king_pos[0]-4,king_pos[1]]
                 new_rook_pos  = [king_pos[0]-1,king_pos[1]]
                 self.move_piece(rook_affected, new_rook_pos, False)
@@ -196,7 +198,7 @@ class Chess_board() :
         
         #CHECK IF ONE OF POSSIBLE ENEMY MOVE HIT COORDINATES
         for move in possible_enemy_move :
-            if np.array_equal(move, king_coord) : 
+            if array_equal(move, king_coord) : 
                 return True
         return False
     
@@ -269,7 +271,7 @@ class Chess_board() :
         moves = self.remove_illegal_moves(piece, moves, piece.get_color())
 
         for move in moves :
-            if (np.array_equal(move, to_pos)) : return True
+            if (array_equal(move, to_pos)) : return True
         return False
         
     
@@ -278,7 +280,7 @@ class Chess_board() :
 
         # CHECK IF ONE OF POSSIBLE ENEMY MOVE HIT COORDINATES
         for move in possible_enemy_move :
-            if (np.array_equal(move, pos)) : return False
+            if (array_equal(move, pos)) : return False
         
         return True
     def cell_empty(self, pos) :

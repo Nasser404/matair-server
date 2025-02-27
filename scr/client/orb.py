@@ -1,6 +1,6 @@
-from .game_client import Game_client
-from scr.config import CLIENT_TYPE, ORB_STATUS, MESSAGE_TYPE, DISCONNECT_REASONS, remove_client
-
+from scr.client.game_client import Game_client
+from scr.enums              import CLIENT_TYPE, ORB_STATUS, MESSAGE_TYPE, DISCONNECT_REASONS
+from scr.utils              import remove_client
 
 class Orb(Game_client) :
     def __init__(self, client, server, type= CLIENT_TYPE.ORB):

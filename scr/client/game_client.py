@@ -1,5 +1,6 @@
-from scr.config import  MESSAGE_TYPE, DISCONNECT_REASONS
-from time import time
+from scr.enums      import DISCONNECT_REASONS
+from time           import time
+
 class Game_client() :
     def __init__(self, client, server, type = None):
         self.server             = server
