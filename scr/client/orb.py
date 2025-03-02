@@ -68,7 +68,8 @@ class Orb(Game_client) :
     
     def set_code(self, code) : 
         self.orb_code = code
-        self.update_data_to_client()
+        self.update_clients_orb_data()
+        
     def set_orb_id(self, orb_id)     : 
         self.orb_id       = orb_id
         self.name         = orb_id
@@ -76,16 +77,18 @@ class Orb(Game_client) :
     
     def set_status(self, status)     :
         self.status = status
-        self.update_data_to_client()
+        self.update_clients_orb_data()
+        game = self.get_game()
+        if (game !=None) : game.update_clients_game_info()
     
-    def update_data_to_client(self) :
+    def update_clients_orb_data(self) :
         self.server.send_packet_list(self.client_on_orb, {'type' : MESSAGE_TYPE.ORB_DATA, 'orb_data' : self.get_data()})
         
     def reset(self) : self.send_packet({'type' : MESSAGE_TYPE.ORB_RESET}) 
     
     def set_client_as_main_client(self, client) : 
         self.main_client.append(client)
-        self.update_data_to_client()
+        self.update_clients_orb_data()
         
     
     def connect_client(self, client) :
@@ -101,18 +104,16 @@ class Orb(Game_client) :
         self.main_client    =  remove_client(client, self.main_client)
         self.client_on_orb  =  remove_client(client, self.client_on_orb)
         
-        self.update_data_to_client()
+        self.update_clients_orb_data()
     
     def disconnect_all_client(self) :
         
         for client in self.client_on_orb : self.ask_disconnect(client, reason=DISCONNECT_REASONS.ORB_DISCONNECTED)
         
 
-    def disconnect_from_game(self) :
+    def disconnect_from_game(self):
         self.disconnect_all_client()
         self.client_on_orb  = []
         self.main_client    = []
-        game = self.get_game()
-        if (game != None) : game.disconnect_client(self.client)
-        self.set_color(color=None)
-        self.set_connected_game_id(connected_game_id=None)
+        self.reset()
+        return super().disconnect_from_game()

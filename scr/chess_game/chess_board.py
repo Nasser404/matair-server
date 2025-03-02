@@ -195,6 +195,7 @@ class Chess_board() :
                 
                 if (piece.get_type() == PIECE_TYPE.KING) :
                     king_coord = [i, j]
+                    break
         
         #CHECK IF ONE OF POSSIBLE ENEMY MOVE HIT COORDINATES
         for move in possible_enemy_move :

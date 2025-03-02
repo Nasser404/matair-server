@@ -41,6 +41,9 @@ class CLIENT_TYPE(IntEnum) :
 
 class INFORMATION_TYPE(IntEnum) :
     ORB_NOT_READY     = 0
+    MOVE_NOT_LEGAL    = 1
+    NOT_PLAYER_TURN   = 2
+    NOT_GAME_PLAYER   = 3
 
 
 class DISCONNECT_REASONS(IntEnum) :

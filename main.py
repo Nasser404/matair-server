@@ -4,4 +4,4 @@ server=Server()
 
 server.run()
 
-# Use CTRL+C to stop server
+# Use CTRL+C when running to stop server

@@ -1,6 +1,6 @@
 from scr.config             import SERVER_PORT, MAX_MISSED_PINGS, PING_INTERVAL
 from scr.utils              import id_generator, remove_client, CREDIT
-from scr.enums              import MESSAGE_TYPE, DISCONNECT_REASONS, CLIENT_TYPE
+from scr.enums              import MESSAGE_TYPE, DISCONNECT_REASONS, CLIENT_TYPE, INFORMATION_TYPE, ORB_STATUS
 from logging                import INFO
 from json                   import dumps, loads
 from websocket_server       import WebsocketServer, CLOSE_STATUS_NORMAL, DEFAULT_CLOSE_REASON
@@ -67,9 +67,10 @@ class Server :
         if client == None : return
         
         #Serialize data (dict -> string)
-        message = dumps(data)
-        
-        self.server.send_message(client, message) 
+        try :
+            message = dumps(data)
+            self.server.send_message(client, message) 
+        except : pass
         #print(f"Sending : {message}")
     
     def send_packet_list(self, client_list : list, data : dict) :
@@ -79,7 +80,9 @@ class Server :
         
         for client in client_list : 
             if client == None : continue
-            self.server.send_message(client, message)
+            try :
+                self.server.send_message(client, message)
+            except :pass
         #print(f"Sending to list : {message}")    
         
         
@@ -167,7 +170,12 @@ class Server :
 
             for client in disconnected_clients:
                 self.terminate_client(client)
-           
+                
+    def handle_pong(self, client, data) :
+        client_instance = self.get_client_instance(client) 
+        if client_instance != None :
+            client_instance.last_response = time()     
+       
     def create_game(self, game_id = id_generator(), local_game = False, virtual_game = False) -> Game:
         self.games[game_id] = Game(self, game_id, local_game, virtual_game)
         
@@ -186,12 +194,14 @@ class Server :
                 game_info_list.append(game.get_info())
             return game_info_list            
             
+    def handle_game_list(self, client, data) :
+        self.send_packet(client, {'type' : MESSAGE_TYPE.GAME_LIST, 'game_info_list' : self.get_game_list()})
 
-        
-    def handle_pong(self, client, data) :
-        client_instance = self.get_client_instance(client) 
-        if client_instance != None :
-            client_instance.last_response = time()     
+    def handle_move_asked(self, client, data) :
+        game_id = data['game_id']
+        game = self.games.get(game_id, None)
+        if (game == None) : self.disconnect_client(client)
+        else : game.move_asked(client, data) 
 
     
     def handle_client_identification(self, client, data : dict) :
@@ -210,8 +220,38 @@ class Server :
         client_instance = self.get_client_instance(client)
         client_instance.connected_to_server()
     
-    
 
+
+    def handle_player_connect(self, client, data) :
+        player_orb_code = data['player_orb_code']
+        player_name     = data['player_name']
+        
+        player = self.get_client_instance(client)
+        player.set_name(player_name)
+        
+        ###################################### VIRTUAL GAME #############################
+        if player_orb_code[0:2] == "VG":                                                        # IF CODE START WITH VG
+            
+            # GET GAME IF GAME EXIST OR CREATE NEW GAME
+            new_game = self.create_game(player_orb_code, False, True) if (self.games.get(player_orb_code, None) == None) else self.games.get(player_orb_code) 
+            
+            if (new_game.game_joinable()) : new_game.connect_client(client)                     # IF GAME JOINABLE CONNECT PLAYER TO GAME
+            else : self.disconnect_client(client, reason=DISCONNECT_REASONS.GAME_NOT_JOINABLE)  # IF GAME NOT JOINABLE DISCONNECT CLIENT 
+            return                                                                              # EXIT FUNCTION
+        #################################################################################
+        
+        player_orb = None
+        # TRY TO FIND THE ORB CORRESPONDING TO THE ORB CODE THE PLAYER ENTERED
+        for orb_client in self.orbs_client :
+            orb = self.get_client_instance(orb_client)
+            orb_code = orb.get_code()
+            if (orb_code == player_orb_code) :
+                player_orb = orb
+                break
+        
+        if (player_orb!=None) : player_orb.connect_client(client)                  # IF THE ORB CODE CORRESPOND TO A ORB, CONNECT PLAYER TO ORB
+        else : self.disconnect_client(client, reason=DISCONNECT_REASONS.INVALID_ORB_CODE) # ELSE DISCONNECT CLIENT
+    
     def handle_orb_connect(self, client, data) :
         orb_id = data['orb_id']
         orb_code = data['orb_code']
@@ -221,12 +261,13 @@ class Server :
         orb.set_orb_id(orb_id)
         orb.set_code(orb_code)
         orb.reset()
-        self.orbs[orb_id] = client
+        
+        self.orbs[orb_id] = client # ADD SELF TO LIST OF ORBS
         
     def handle_orb_data(self, client, data) :
-        orb = self.get_client_instance(client)
-        status = data['status']
-        orb_code = data['orb_code']
+        orb         = self.get_client_instance(client)
+        status      = data['status']
+        orb_code    = data['orb_code']
         orb.set_status(status)
         orb.set_code(orb_code)
         
@@ -237,44 +278,6 @@ class Server :
             if (orb.is_new_game_possible()) : orb_list.append(orb.get_simple_data())
         self.send_packet(client, {'type': MESSAGE_TYPE.ORB_LIST, 'orb_list' : orb_list})
         
-        
-    def handle_move_asked(self, client, data) :
-        game_id = data['game_id']
-        game = self.games.get(game_id, None)
-        if (game == None) : self.disconnect_client(client)
-        else : game.move_asked(client, data)
-        
-
-    def handle_game_list(self, client, data) :
-        self.send_packet(client, {'type' : MESSAGE_TYPE.GAME_LIST, 'game_info_list' : self.get_game_list()})
-  
-          
-    def handle_player_connect(self, client, data) :
-        player_orb_code = data['player_orb_code']
-        player_name     = data['player_name']
-        
-        player = self.get_client_instance(client)
-        player.set_name(player_name)
-        
-        ###################################### VIRTUAL GAME #############################
-        if player_orb_code[0:2] == "VG":
-            new_game = self.create_game(player_orb_code, False, True) if (self.games.get(player_orb_code, None) == None) else self.games.get(player_orb_code)
-            if (new_game.game_joinable()) : new_game.connect_client(client)
-            else : self.disconnect_client(client, reason=DISCONNECT_REASONS.GAME_NOT_JOINABLE)
-            return
-        #################################################################################
-        
-        player_orb = None
-        for orb_client in self.orbs_client :
-            orb = self.get_client_instance(orb_client)
-            orb_code = orb.get_code()
-            if(orb_code == player_orb_code) :
-                player_orb = orb
-                break
-        
-        if (player_orb!=None) : player_orb.connect_client(client)
-        else : self.disconnect_client(client, DISCONNECT_REASONS.INVALID_ORB_CODE)
-    
     def handle_orb_new_game(self, client, data) :
         orb1_id = data['id1']
         orb2_id = data['id2']
@@ -287,20 +290,27 @@ class Server :
         orb1_instance = self.get_client_instance(orb1_client)
         orb2_instance = self.get_client_instance(orb2_client)
         
+    
         if (orb1_instance!=None) and (orb2_instance!=None) : # THE TWO GIVEN ORB ID ARE VALID
-            if (orb1_instance.is_new_game_possible()) and (orb2_instance.is_new_game_possible()) :
+            if (orb1_instance.is_new_game_possible()) and (orb2_instance.is_new_game_possible()) : 
                 print("\n\n\nGAME IS POSSIBLE")
                 game = self.create_game(id_generator(), local_game, False)
                 orb1_instance.set_client_as_main_client(client)
                 game.connect_client(orb1_client)
                 if (not local_game) : game.connect_client(orb2_client)
                 game.connect_client(client)
+                return # IF COULD CREATE GAME, EXIT FUNCTION HERE
+        
+        #IF COULDNT CREATE GAME SEND INFORMATION TO CLIENT WHO TRIED
+        self.send_packet(client, {'type' : MESSAGE_TYPE.INFORMATION, 'information' : INFORMATION_TYPE.ORB_NOT_READY})
+        
+        
                 
     
     def handle_orb_continue_game(self, client, data) :
-        orb_id = data['id']
-        orb_client = self.orbs.get(orb_id, None)
-        orb_instance = self.get_client_instance(orb_client)
+        orb_id          = data['id']
+        orb_client      = self.orbs.get(orb_id, None)
+        orb_instance    = self.get_client_instance(orb_client)
         
         if (orb_instance!=None) :
             if (not orb_instance.is_used()) :
@@ -310,14 +320,18 @@ class Server :
             
 
     def handle_orb_end_game(self, client, data) :
-        orb_id = data['id']
-        orb_client = self.orbs.get(orb_id, None)
-        orb_instance = self.get_client_instance(orb_client)
+        orb_id          = data['id']
+        orb_client      = self.orbs.get(orb_id, None)
+        orb_instance    = self.get_client_instance(orb_client)
         
-        if (orb_instance!=None) :
+        if (orb_instance!=None) and (orb_instance.get_status() == ORB_STATUS.IDLE) :
             if (orb_instance.is_in_game()) :
                 game = orb_instance.get_game()
                 game.close()
+                return
+        
+        #IF COULDNT CLOSE GAME SEND INFORMATION TO CLIENT WHO TRIED
+        self.send_packet(client, {'type' : MESSAGE_TYPE.INFORMATION, 'information' : INFORMATION_TYPE.ORB_NOT_READY})
     
     def handle_viewer_connect(self, client, data) :
         game_id = data['game_id']

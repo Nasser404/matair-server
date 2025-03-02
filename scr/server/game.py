@@ -1,5 +1,5 @@
 from scr.utils                  import remove_client, id_generator
-from scr.enums                  import MESSAGE_TYPE, CLIENT_TYPE, PIECE_COLOR
+from scr.enums                  import MESSAGE_TYPE, CLIENT_TYPE, PIECE_COLOR, ORB_STATUS ,INFORMATION_TYPE
 from datetime                   import datetime
 from random                     import choice
 from scr.chess_game.chess_board import Chess_board
@@ -38,7 +38,6 @@ class Game :
                 
             black_orb_name    = white_orb_name
         else :
-            print(self.client_colors)
             white_orb_name = "" if white_client == None else white_client.get_name()
             black_orb_name = "" if black_client == None else black_client.get_name()
             
@@ -66,8 +65,8 @@ class Game :
             'chat_history'      : self.chat_history,
             'winner'            : self.board.winner,
             'day_of_last_move'  : self.get_day_of_last_move(),
-        }
-        print(data_packet)
+            'orbs_status'       : self.get_orbs_status()
+            }
         return data_packet
         
         
@@ -83,7 +82,19 @@ class Game :
     def get_number_of_turn(self)    : return self.board.number_of_turn
     def get_game_turn(self)         : return self.board.turn
     def is_move_legal(self, from_pos : list, to_pos : list) : return self.board.check_move_valid(from_pos, to_pos)
-      
+    
+    def get_orbs_status(self) :
+        if (self.virtual_game) :
+            return None
+        elif (self.local_game) and (len(self.connected_orb_clients)>=1):
+            orb_instance = self.get_client_instance(self.connected_orb_clients[0])
+            return [orb_instance.get_status(), orb_instance.get_status()]
+        elif(len(self.connected_orb_clients)>=2) :
+            orb_1_instance = self.get_client_instance(self.connected_orb_clients[0])
+            orb_2_instance = self.get_client_instance(self.connected_orb_clients[1])
+            return [orb_1_instance.get_status(),orb_2_instance.get_status()] if orb_1_instance.get_color() == PIECE_COLOR.WHITE else  [orb_2_instance.get_status(), orb_1_instance.get_status()]
+        return None
+            
     def get_client_instance(self, client) : 
         if client == None : return None
 
@@ -92,6 +103,25 @@ class Game :
     def game_joinable(self) :
         return (self.get_number_of_player() < 2) and (not self.game_ended())
     
+    def update_clients_game_info(self) :
+        info_packet =  {
+        'type' : MESSAGE_TYPE.GAME_INFO,
+        'info' : self.get_info()}
+        self.server.send_packet_list(self.connected_clients, info_packet)
+        
+    def send_game_data(self, client, force_update = True) :
+        client_instance = self.get_client_instance(client)
+        if (client_instance == None) : return
+          
+        data_packet = {'type'           : MESSAGE_TYPE.GAME_DATA,
+                       'info'           : self.get_info(),
+                       'data'           : self.get_data(),
+                       'board_string'   : self.get_board_string(),
+                       'color'          : client_instance.get_color(),
+                       'force_update'   : force_update
+                       }
+        
+        client_instance.send_packet(data_packet)
 
     def connect_client(self, client) :
         client_instance = self.get_client_instance(client)
@@ -102,7 +132,7 @@ class Game :
         match(client_type) :
             case CLIENT_TYPE.ORB :
                 if (not self.local_game) and (not self.virtual_game) : self.give_client_color(client)
-                client_instance.update_data_to_client()
+                client_instance.update_clients_orb_data()
                 self.connected_orb_clients.append(client)
                 
             case CLIENT_TYPE.VIEWER :
@@ -117,22 +147,10 @@ class Game :
                     
                 self.connected_player_clients.append(client)
                
-
-        data_packet = {'type' : MESSAGE_TYPE.GAME_DATA,
-                  'info' : self.get_info(),
-                  'data' : self.get_data(),
-                  'board_string' : self.get_board_string(),
-                  'color' :  client_instance.get_color(),
-                  'force_update' : True}
+        self.send_game_data(client)
+        self.update_clients_game_info()
         
-        client_instance.send_packet(data_packet)
-        
-        info_packet =  {
-            'type' : MESSAGE_TYPE.GAME_INFO,
-            'info' : self.get_info()}
-        
-        other_client_list =  [d for d in self.connected_clients if d.get('id') != client['id']]
-        self.server.send_packet_list(other_client_list, info_packet)
+      
         
     def give_client_color(self, client) :
 
@@ -149,13 +167,10 @@ class Game :
         return len(self.connected_orb_clients)
     
     def disconnect_client(self, client) :
-    
-        
-        
         client_instance = self.get_client_instance(client)
         client_instance_color    = client_instance.get_color()
         
-        if (client_instance_color!=None) and (self.virtual_game or self.local_game) : self.client_colors[client_instance_color] = None
+        if (client_instance_color!=None) and (self.virtual_game or self.local_game) : self.client_colors[client_instance_color] = None # FREE THE COLOR USED BY THE PLAYER
         
         self.connected_clients          =  remove_client(client, self.connected_clients)
         self.connected_player_clients   =  remove_client(client, self.connected_player_clients)
@@ -163,66 +178,97 @@ class Game :
         self.connected_orb_clients      =  remove_client(client, self.connected_orb_clients)
         
         
-        if (self.virtual_game) : # VIRTUAL GAME
-            if (self.get_number_of_player() < 2) and (self.get_number_of_turn() > 4) :
-                self.board.game_ended = True
-                self.board.winner = PIECE_COLOR.WHITE if (self.client_colors[PIECE_COLOR.BLACK] == None) else PIECE_COLOR.BLACK
+        if (self.virtual_game) :                           # VIRTUAL GAME CLOSING REQUIEREMENT
+            
+            if (self.get_number_of_player() < 2) and (self.get_number_of_turn() > 4) :          # IF MORE THAN 4 MOVE HAVE BEEN MADE AND ONE PLAYER QUIT GAME
+                self.board.game_ended = True                                                    # END THE GAME (NOT CLOSING JUST ENDING)
+                self.board.winner = PIECE_COLOR.WHITE if (self.client_colors[PIECE_COLOR.BLACK] == None) else PIECE_COLOR.BLACK # SET THE PLAYER LEFT AS THE WINNVER
                 
-            if (self.get_number_of_player()<=0) : 
-                self.close()
+            if (self.get_number_of_player()<=0) :          # IF NO PLAYER LEFT IN THE GAME
+                self.close()                               # CLOSE GAME
                 return
             
         else :
-            if (self.local_game) : # LOCAL GAME
-                if (self.get_number_of_orb() < 1) :
-                    self.close()
+            if (self.local_game) :                          # LOCAL GAME CLOSING REQUIEREMENT
+                if (self.get_number_of_orb() < 1) :         # IF THE ORB HOSTING THE GAME HAS DISCONNECTED
+                    self.close()                            # CLOSE GAME
                     return
-            else : # NORMAL GAME
-                if (self.get_number_of_orb() < 2) :
-                    self.close()
+            else :                                          # NORMAL GAME CLOSING REQUIEREMENT
+                if (self.get_number_of_orb() < 2) :         # IF ONE OF THE ORB IN THE GAME HAS DISCONNECTED
+                    self.close()                            # CLOSE GAME
                     return
                
             
+        # IF DISCONNECTING CLIENT DID NOT CAUSE GAME CLOSING SEND CURRENT GAME INFORMATION TO LEFT CLIENT
         info = self.get_info()
         self.server.send_packet_list(self.connected_clients, {'type' :MESSAGE_TYPE.GAME_INFO,'info':info})
     
     
     def move_asked(self, client, move_data) :
-        can_do_move = False
+        can_do_move = False # VAR USED TO KNOW IF GAME COULD DO MOVE OF PLAYER
+        reason      = None  # IF COULD NOT DO MOVE OF PLAYER STORE THE REASON (INFORMATION TYPE ENUM)
         
+        # GET CLIENT MOVE INFORMATION
         color    = move_data['color']
         from_pos = [int(i) for i in move_data['from']]
         to_pos   = [int(i) for i in move_data['to']]
         
-
-        if ((client['id'] in [_client_['id'] for _client_ in self.connected_player_clients])):
-            if (self.get_game_turn() == color) :
-                if (self.is_move_legal(from_pos, to_pos)) :
-                    self.board.move_piece(from_pos, to_pos)
-                    self.server.send_packet_list(self.connected_clients, {'type' : MESSAGE_TYPE.MOVE, 'from':from_pos, 'to':to_pos})
-                    can_do_move = True
-        
+        # FIND IF ALL THE ORB OF THE GAME ARE FREE
+        orbs_free = True
+        orbs_status = self.get_orbs_status()
+        if (orbs_status != None) :
+            for status in orbs_status :
+                if (status == ORB_STATUS.OCCUPIED) :
+                    orbs_free = False
+                    break
+            
+        if (orbs_free) :                                                                                          # IF ALL THE ORBS OF THE GAME NOT OCCUPIED (PHYSICALLY MOVING)                                              
+            if ((client['id'] in [_client_['id'] for _client_ in self.connected_player_clients])) :               # IF CLIENT IS A PLAYER IN GAME AND ORBS ARE FREE
+                if (self.get_game_turn() == color) :                                                              # IF CLIENT COLOR IS CURRENT GMAE TURN
+                    if (self.is_move_legal(from_pos, to_pos)) :                                                   # IF CLIENT MOVE IS LEGAL
+                        
+                        # DO THE MOVE OF THE CLIENT
+                        self.board.move_piece(from_pos, to_pos) 
+                        # TELL ALL OTHER CLIENT CONNECTED TO THE GAME TO REPLICATE MOVE
+                        self.server.send_packet_list(self.connected_clients, {'type' : MESSAGE_TYPE.MOVE, 'from':from_pos, 'to':to_pos})
+                        
+                        # SET THE STATUS OF  ALL ORBS OF THE GAME TO OCCUPIED
+                        for orb_client in self.connected_orb_clients :
+                            orb_instance = self.get_client_instance(orb_client)
+                            if (orb_instance!=None) : orb_instance.set_status(ORB_STATUS.OCCUPIED)
+                            
+                        can_do_move = True
+                        
+                    else : reason = INFORMATION_TYPE.MOVE_NOT_LEGAL
+                else : reason = INFORMATION_TYPE.NOT_PLAYER_TURN
+            else :reason = INFORMATION_TYPE.NOT_GAME_PLAYER
+        else : reason = INFORMATION_TYPE.ORB_NOT_READY
+   
+        # IF COULDNT DO THE MOVE OF CLIENT 
         if (not can_do_move) :
-            client_instance = self.get_client_instance(client)
-            data_packet = {'type' : MESSAGE_TYPE.GAME_DATA,
-            'info' : self.get_info(),
-            'data' : self.get_data(),
-            'board_string' : self.get_board_string(),
-            'color' :  client_instance.get_color(),
-            'force_update' : True}
-            client_instance.send_packet(data_packet)
+            self.send_game_data(client) # RESEND THE CLIENT THE GAME DATA SO THEY BE IN SYNC WITH CURRENT GAME STATE (MAYBE THEY REQUEST WAS NOT VALID BECAUSE THEY WERE NOT CORRECTLY SYNC)
+            
+            if (reason != None) :       # SEND THE REASON THE MOVE WAS NOT ACCEPTED
+                self.server.send_packet(client, {'type' : MESSAGE_TYPE.INFORMATION, 'information' : reason})
+           
+           
+            
     def add_message(self, message) :
+        if (len(self.chat_history)> 50) : self.chat_history = self.chat_history[25:] # IF CHAT HISTORY SIZE > 50 CUT TO HALF
         self.chat_history.append(message)
         self.server.send_packet_list(self.connected_clients, {'type' : MESSAGE_TYPE.GAME_CHAT, 'message' : message})
             
     def close(self) :
         if self.closed : return
         
+        # TELL ALL CLIENT CONNECTED TO GAME TO RUN THEIR disconnect_from_game() METHOD
         for client in self.connected_clients :
             client_instance = self.get_client_instance(client)
             client_instance.disconnect_from_game()
         
+        # TELL SERVER TO CLOSE THIS GAME
         self.server.close_game(self.game_id)
+        
         self.closed = True
 
                 
