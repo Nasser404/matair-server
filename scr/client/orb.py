@@ -17,7 +17,7 @@ class Orb(Game_client) :
     
     def disconnected_from_server(self) :
         print(f"orb id : {self.orb_id} DISCONNECTED FROM SERVER !!")
-        
+        if (self.orb_id == None) : return
         self.disconnect_from_game()
         self.disconnect_all_client()
         del self.server.orbs[self.orb_id] # REMOVE SELF FROM LIST OF ORBS
