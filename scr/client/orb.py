@@ -27,7 +27,7 @@ class Orb(Game_client) :
     def get_code(self) : return self.orb_code
     def get_status(self) : return self.status
     
-    def get_data(self) :
+    def get_data(self) -> dict :
         data = {
             'id'        : self.orb_id,
             'code'      : self.orb_code,
@@ -39,7 +39,7 @@ class Orb(Game_client) :
         }
         return data
     
-    def get_simple_data(self) :
+    def get_simple_data(self) -> dict :
         data = {
             'id'        : self.orb_id,
             'code'      : self.orb_code,
@@ -48,14 +48,14 @@ class Orb(Game_client) :
         }
         return data
             
-    def get_game_info(self) :
+    def get_game_info(self) -> dict:
         game = self.get_game()
         return None if game == None else game.get_info()
     
-    def get_main_client(self, n = 0) :
+    def get_main_client(self, n = 0) -> dict:
         return None if (len(self.main_client)-1 < n) else self.main_client[n]
        
-    def is_used(self) :
+    def is_used(self) -> bool:
         game = self.get_game()
         is_local_game = False
         if (game != None) : is_local_game = game.is_local_game()
@@ -66,16 +66,16 @@ class Orb(Game_client) :
 
         return not self.is_used() and self.get_status() == ORB_STATUS.IDLE and not self.is_in_game()
     
-    def set_code(self, code) : 
+    def set_code(self, code : str) : 
         self.orb_code = code
         self.update_clients_orb_data()
         
-    def set_orb_id(self, orb_id)     : 
+    def set_orb_id(self, orb_id : str)     : 
         self.orb_id       = orb_id
         self.name         = orb_id
         
     
-    def set_status(self, status)     :
+    def set_status(self, status : ORB_STATUS)     :
         self.status = status
         self.update_clients_orb_data()
         game = self.get_game()
@@ -86,12 +86,12 @@ class Orb(Game_client) :
         
     def reset(self) : self.send_packet({'type' : MESSAGE_TYPE.ORB_RESET}) 
     
-    def set_client_as_main_client(self, client) : 
+    def set_client_as_main_client(self, client : dict) : 
         self.main_client.append(client)
         self.update_clients_orb_data()
         
     
-    def connect_client(self, client) :
+    def connect_client(self, client : dict) :
         self.client_on_orb.append(client)
         
         player = self.get_client_instance(client)
@@ -99,15 +99,13 @@ class Orb(Game_client) :
         print(self.main_client)
         player.send_packet({'type' : MESSAGE_TYPE.ORB_DATA, 'orb_data' : self.get_data()})
         
-    def remove_client(self, client) :
-       
+    def remove_client(self, client : dict)  :
         self.main_client    =  remove_client(client, self.main_client)
         self.client_on_orb  =  remove_client(client, self.client_on_orb)
         
         self.update_clients_orb_data()
     
-    def disconnect_all_client(self) :
-        
+    def disconnect_all_client(self) : 
         for client in self.client_on_orb : self.ask_disconnect(client, reason=DISCONNECT_REASONS.ORB_DISCONNECTED)
         
 

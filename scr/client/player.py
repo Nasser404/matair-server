@@ -8,6 +8,7 @@ class Player(Game_client) :
         
         
     def connected_to_server(self) :
+        # send a message to his client to connect as a player
         self.send_packet({'type' : MESSAGE_TYPE.PLAYER_CONNECT})
     
     def disconnected_from_server(self) :

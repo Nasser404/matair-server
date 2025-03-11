@@ -6,25 +6,25 @@ from scr.chess_game.chess_board import Chess_board
 
 class Game :
     def __init__(self, server, game_id = id_generator(), local_game = False, virtual_game = False):
-        self.board = Chess_board()
-
+        self.board          = Chess_board()
         
-        self.game_id = game_id
-        self.server = server
-        self.local_game = local_game
-        self.virtual_game = virtual_game
+        self.game_id        = game_id
+        self.server         = server
+        self.local_game     = local_game
+        self.virtual_game   = virtual_game
         
-        self.connected_orb_clients = []
-        self.connected_clients     = []
-        self.connected_player_clients = []
-        self.connected_viewer_clients = []
-        self.day_of_last_move         = datetime.now().timetuple().tm_yday
+        self.connected_orb_clients      = []
+        self.connected_clients          = []
+        self.connected_player_clients   = []
+        self.connected_viewer_clients   = []
         
         self.client_colors = [None, None]
         self.chat_history  = []
-        self.closed = False
+        
+        self.day_of_last_move   = datetime.now().timetuple().tm_yday
+        self.closed             = False
     
-    def get_info(self) : 
+    def get_info(self) -> dict : 
         white_client = self.get_client_instance(self.client_colors[PIECE_COLOR.WHITE])
         black_client = self.get_client_instance(self.client_colors[PIECE_COLOR.BLACK])
         
@@ -70,20 +70,22 @@ class Game :
         return data_packet
         
         
-    def get_number_of_player(self)  : return len(self.connected_player_clients)
-    def get_number_of_viewer(self)  : return len(self.connected_viewer_clients)
-    def get_game_id(self)           : return self.game_id
-    def get_day_of_last_move(self)  : return self.day_of_last_move
-    def get_board_string(self)      : return self.board.get_board_string()
-    def is_local_game(self)         : return self.local_game
-    def is_virtual_game(self)       : return self.virtual_game
-    def get_data(self)  -> dict     : return self.board.get_board_data()
-    def game_ended(self)-> bool     : return self.board.game_ended
-    def get_number_of_turn(self)    : return self.board.number_of_turn
-    def get_game_turn(self)         : return self.board.turn
-    def is_move_legal(self, from_pos : list, to_pos : list) : return self.board.check_move_valid(from_pos, to_pos)
+    def get_number_of_player(self)   -> int         : return len(self.connected_player_clients)
+    def get_number_of_viewer(self)   -> int         : return len(self.connected_viewer_clients)
+    def get_game_id(self)            -> str         : return self.game_id
+    def get_day_of_last_move(self)   -> int         : return self.day_of_last_move
+    def get_board_string(self)       -> str         : return self.board.get_board_string()
+    def is_local_game(self)          -> bool        : return self.local_game
+    def is_virtual_game(self)        -> bool        : return self.virtual_game
+    def get_data(self)               -> dict        : return self.board.get_board_data()
+    def game_ended(self)             -> bool        : return self.board.game_ended
+    def get_number_of_turn(self)     -> int         : return self.board.number_of_turn
+    def get_game_turn(self)          -> PIECE_COLOR : return self.board.turn
+    def game_joinable(self)          -> bool        : return (self.get_number_of_player() < 2) and (not self.game_ended())
+    def get_number_of_orb(self)      -> int         : return len(self.connected_orb_clients)
+    def is_move_legal(self, from_pos : list, to_pos : list) -> bool : return self.board.check_move_valid(from_pos, to_pos)
     
-    def get_orbs_status(self) :
+    def get_orbs_status(self) -> list :
         if (self.virtual_game) :
             return None
         elif (self.local_game) and (len(self.connected_orb_clients)>=1):
@@ -97,11 +99,8 @@ class Game :
             
     def get_client_instance(self, client) : 
         if client == None : return None
-
         return self.server.clients_instance[client['id']]
-    
-    def game_joinable(self) :
-        return (self.get_number_of_player() < 2) and (not self.game_ended())
+
     
     def update_clients_game_info(self) :
         info_packet =  {
@@ -150,10 +149,8 @@ class Game :
         self.send_game_data(client)
         self.update_clients_game_info()
         
-      
         
     def give_client_color(self, client) :
-
         color_choice = [i for i in range(len(self.client_colors)) if self.client_colors[i] == None]
         color = choice(color_choice)
         self.client_colors[color] = client
@@ -161,11 +158,6 @@ class Game :
         client_instance = self.get_client_instance(client)
         client_instance.set_color(color)
         
-    
-    
-    def get_number_of_orb(self) :
-        return len(self.connected_orb_clients)
-    
     def disconnect_client(self, client) :
         client_instance = self.get_client_instance(client)
         client_instance_color    = client_instance.get_color()

@@ -12,31 +12,29 @@ class Game_client() :
         self.name               = ""
         self.last_response      = time()
 
-    def send_packet(self, data:dict) :
+    def send_packet(self, data : dict) :
         self.server.send_packet(self.client, data)
     
-    def get_client(self)            : return self.client
-    def get_type(self)              : return self.type
-    def get_connected_game_id(self) : return self.connected_game_id
-    def get_color(self)             : return self.color
+    def get_client(self)            -> dict : return self.client
+    def get_type(self)              -> int  : return self.type
+    def get_connected_game_id(self) -> str  : return self.connected_game_id
+    def get_color(self)             -> int  : return self.color
 
-    def get_name(self)     : return self.name
-    def is_in_game(self) -> bool    : return (self.connected_game_id != None)
-    def get_game(self)              : return None if (self.connected_game_id == None) else self.server.games.get(self.connected_game_id, None)
+    def get_name(self)              -> str  : return self.name
+    def is_in_game(self)            -> bool : return (self.connected_game_id != None)
+    def get_game(self)                      : return None if (self.connected_game_id == None) else self.server.games.get(self.connected_game_id, None)
     
-    def get_client_instance(self, client):
+    def get_client_instance(self, client : dict)   :
         return None if client == None else self.server.clients_instance.get(client['id'], None)
     
 
-    def set_color(self, color) : self.color = color
-    def set_name(self, name)   : self.name  = name
-    def set_connected_game_id(self, connected_game_id) : self.connected_game_id = connected_game_id
+    def set_color(self, color : int)                         : self.color = color
+    def set_name(self, name : str)                           : self.name  = name
+    def set_connected_game_id(self, connected_game_id : str) : self.connected_game_id = connected_game_id
     
-    def ask_disconnect(self, client, reason = DISCONNECT_REASONS.NO_REASON) : self.server.disconnect_client(client, reason=reason)
+    def ask_disconnect(self, client : dict, reason : DISCONNECT_REASONS = DISCONNECT_REASONS.NO_REASON) : self.server.disconnect_client(client, reason=reason)
     
     def disconnect_from_game(self) :
-
-        
         game = self.get_game()
         if (game != None) : game.disconnect_client(self.client)
         self.set_color(color=None)

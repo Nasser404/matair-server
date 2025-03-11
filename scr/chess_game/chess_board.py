@@ -11,8 +11,7 @@ from numpy                          import array_equal
 class Chess_board() :
     def __init__(self):
         self.grid = [[None for i in range(8)] for j in range(8)]
-        self.turn = PIECE_COLOR.WHITE
-        self.number_of_turn = 0
+     
         self.captured_pieces = {"white" : {"Pawn":0, "Rook":0, "Knight": 0, "Bishop" : 0, "Queen":0, "King":0}, 
                                 "black" : {"Pawn":0, "Rook":0, "Knight": 0, "Bishop" : 0, "Queen":0, "King":0}}
         
@@ -21,11 +20,13 @@ class Chess_board() :
         
         self.orbs_names    = {"white" : "",
                               "black" : ""}
-        self.checked = None
         
+        self.turn           = PIECE_COLOR.WHITE
+        self.number_of_turn = 0
+        self.checked        = None
         self.is_false_board = False
-        self.game_ended = False
-        self.winner = None
+        self.game_ended     = False
+        self.winner         = None
         self.possible_moves = [[], []]
         self.square_reached = [[], []]
         
@@ -63,7 +64,7 @@ class Chess_board() :
 
     def get_grid(self) : return self.grid 
     
-    def add_piece(self, type, color, pos) :
+    def add_piece(self, type : PIECE_TYPE, color : PIECE_COLOR, pos : list[int]) :
         x = pos[0]
         y = pos[1]
         match type :
@@ -73,14 +74,15 @@ class Chess_board() :
             case PIECE_TYPE.BISHOP  : self.grid[x][y] = Bishop(pos, color, self)
             case PIECE_TYPE.KING    : self.grid[x][y] = King(pos, color, self)
             case PIECE_TYPE.QUEEN   : self.grid[x][y] = Queen(pos, color, self)
+            
     def calculate_all_moves(self) :
         self.square_reached[PIECE_COLOR.WHITE] = self.check_square_reached(PIECE_COLOR.WHITE)
         self.square_reached[PIECE_COLOR.BLACK] = self.check_square_reached(PIECE_COLOR.BLACK)
         
-    def calculate_legal_moves(self, color) :
+    def calculate_legal_moves(self, color : PIECE_COLOR) :
         self.possible_moves[color] = self.check_possible_moves(color)
         
-    def check_square_reached(self, color) :
+    def check_square_reached(self, color : PIECE_COLOR) -> list:
         possible_moves = []
         for i in range(8) :
             for j in range(8) :
@@ -92,7 +94,7 @@ class Chess_board() :
                 possible_moves += moves
         return possible_moves
                 
-    def check_possible_moves(self, color) :
+    def check_possible_moves(self, color : PIECE_COLOR) -> list :
         possible_moves = []
      
         for i in range(8) :
@@ -105,10 +107,10 @@ class Chess_board() :
         return possible_moves
                 
         
-    def get_number_possible_moves(self, color) : return len(self.possible_moves[color])
+    def get_number_possible_moves(self, color : PIECE_COLOR) -> int : return len(self.possible_moves[color])
     
     
-    def update_piece_last_pos(self, color) :
+    def update_piece_last_pos(self, color : PIECE_COLOR) :
         for i in range(8) :
             for j in range(8) :
              
@@ -118,12 +120,12 @@ class Chess_board() :
                 if (piece.get_color() != color) : continue
                 
                 piece.set_last_pos()
-    def get_piece(self, pos) :
+    def get_piece(self, pos :list):
         w_pos = wrap_pos(pos)
         return self.grid[int(w_pos[0])][int(w_pos[1])]
     
     
-    def move_piece(self, from_pos, to_pos, real_move = True) :
+    def move_piece(self, from_pos : list[int], to_pos : list[int], real_move : bool = True) :
     
         
         new_x = to_pos[0]
@@ -170,10 +172,10 @@ class Chess_board() :
         
         
         
-    def remove_piece(self, pos) :
+    def remove_piece(self, pos : list[int]) :
         self.grid[int(pos[0])][int(pos[1])] = None
         
-    def piece_captured(self, pos) :
+    def piece_captured(self, pos :list[int]) :
 
         piece = self.get_piece(pos)
         if (not self.is_false_board) :
@@ -182,7 +184,7 @@ class Chess_board() :
         self.remove_piece(pos)
         
     
-    def is_checked(self, color) :
+    def is_checked(self, color : PIECE_COLOR) :
         possible_enemy_move = self.square_reached[not color]
         
         #FIND KING COORDINATES
@@ -216,7 +218,7 @@ class Chess_board() :
         
         return data
     
-    def load_board_data(self, data) :
+    def load_board_data(self, data : dict) :
         self.grid = [[None for i in range(8)] for j in range(8)]
         self.captured_pieces = data['captured_pieces']
         self.turn            = data['turn']
@@ -236,7 +238,7 @@ class Chess_board() :
                 self.add_piece(int(piece_type), int(piece_color), [i,j])
                 self.grid[i][j].set_moved(piece_moved)
     
-    def is_checked_after_move(self, from_pos, to_pos, color) : # HEAVY !!
+    def is_checked_after_move(self, from_pos : list[int], to_pos : list[int], color : PIECE_COLOR) : # HEAVY !!
         # CREATE A FALSE BOARD MAKE THE POSSIBLE MOVE ON FAKE BOARD AND RETURN IF KING IS STILL CHECKED ON FALSE BOARD
         real_board_data = self.get_board_data()
         fake_board      = Chess_board()
@@ -250,7 +252,7 @@ class Chess_board() :
       
         return fake_board.is_checked(color)
     
-    def remove_illegal_moves(self, piece, possible_moves, color) :
+    def remove_illegal_moves(self, piece, possible_moves : list[list[int]], color : PIECE_COLOR) :
         clean_moves = []
         piece_color = piece.get_color()
         piece_pos   = piece.get_pos()
@@ -263,7 +265,7 @@ class Chess_board() :
         
         return clean_moves         
     
-    def check_move_valid(self, from_pos, to_pos) :
+    def check_move_valid(self, from_pos : list[int], to_pos : list[int]) :
        
         piece = self.get_piece(from_pos)
         moves = piece.get_moves()
@@ -276,7 +278,7 @@ class Chess_board() :
         return False
         
     
-    def cell_safe(self, pos, color) :
+    def cell_safe(self, pos : list[int], color : PIECE_COLOR) :
         possible_enemy_move = self.square_reached[not color]
 
         # CHECK IF ONE OF POSSIBLE ENEMY MOVE HIT COORDINATES
@@ -314,17 +316,6 @@ class Chess_board() :
                     self.game_ended = True
                     self.winner = None
                     
-            
-        
-    def __str__(self):
-        board_string = ""
-        for i in range(8) :
-            for j in range(8) :
-                piece = self.grid[j][i]
-                if (piece == None) : board_string += "*"
-                else : board_string += piece.get_string()
-            board_string+="\n"
-        return board_string
     def get_board_string(self) :
         board_string = ""
         for i in range(8) :
@@ -334,3 +325,13 @@ class Chess_board() :
                 else : board_string += piece.get_string()
         return board_string
         
+            
+    def __str__(self):
+        board_string = ""
+        for i in range(8) :
+            for j in range(8) :
+                piece = self.grid[j][i]
+                if (piece == None) : board_string += "*"
+                else : board_string += piece.get_string()
+            board_string+="\n"
+        return board_string
