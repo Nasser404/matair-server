@@ -4,7 +4,7 @@ from scr.chess_game.piece.bishop    import Bishop
 from scr.chess_game.piece.rook      import Rook
 from scr.chess_game.piece.queen     import Queen
 from scr.chess_game.piece.king      import King
-from scr.enums                      import PIECE_COLOR, PIECE_TYPE
+from scr.enums                      import PIECE_COLOR, PIECE_TYPE, SPECIAL_MOVES
 from scr.utils                      import wrap_pos
 from numpy                          import array_equal
 
@@ -127,7 +127,7 @@ class Chess_board() :
     
     def move_piece(self, from_pos : list[int], to_pos : list[int], real_move : bool = True) :
     
-        
+        special_move = {"type" : None}
         new_x = to_pos[0]
         new_y = to_pos[1]
                 
@@ -143,24 +143,47 @@ class Chess_board() :
             if array_equal(to_pos,piece.en_passant) :
                 pawn_affected = [to_pos[0], to_pos[1] - piece.forward]
                 self.piece_captured(pawn_affected)
+                
+                special_move["type"]           = SPECIAL_MOVES.EN_PASSANT
+                special_move["captured_piece"] = pawn_affected
+                
+                
         #CASTLE 
         elif (piece.get_type() == PIECE_TYPE.KING) :
             king_pos = piece.get_pos()
+            
+            
             if (array_equal(to_pos, piece.right_castle)) :
-    
+
+                
                 rook_affected = [king_pos[0]+3, king_pos[1]]
                 new_rook_pos  = [king_pos[0]+1, king_pos[1]]
+               
                 self.move_piece(rook_affected, new_rook_pos, False)
+                
+                special_move["type"]        = SPECIAL_MOVES.CASTLE
+                special_move["rook_from"]   = rook_affected
+                special_move["rook_to"]     = new_rook_pos
         
                 
             if (array_equal(to_pos, piece.left_castle)) :
+                
                 rook_affected = [king_pos[0]-4,king_pos[1]]
                 new_rook_pos  = [king_pos[0]-1,king_pos[1]]
                 self.move_piece(rook_affected, new_rook_pos, False)
+                
+                                
+                special_move["type"]        = SPECIAL_MOVES.CASTLE
+                special_move["rook_from"]   = rook_affected
+                special_move["rook_to"]     = new_rook_pos
         #PROMOTION    
         
         if ((new_y == 0) or (new_y == 7)) and (piece.get_type() == PIECE_TYPE.PAWN) :
+            
             self.add_piece(PIECE_TYPE.QUEEN, piece.get_color(), to_pos)
+            
+            special_move["type"]        = SPECIAL_MOVES.PROMOTION
+            special_move["pawn_pos"]    = from_pos
         else :
             self.grid[int(new_x)][int(new_y)] = piece
             self.grid[int(new_x)][int(new_y)].set_pos(to_pos)
@@ -168,7 +191,9 @@ class Chess_board() :
             
             
     
-        if (real_move) : self.next_turn()
+        if (real_move) : 
+            self.next_turn()
+            return special_move
         
         
         

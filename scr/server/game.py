@@ -219,12 +219,12 @@ class Game :
                 if (self.get_game_turn() == color) :                                                              # IF CLIENT COLOR IS CURRENT GMAE TURN
                     if (self.is_move_legal(from_pos, to_pos)) :                                                   # IF CLIENT MOVE IS LEGAL
                         
-                        # DO THE MOVE OF THE CLIENT
-                        self.board.move_piece(from_pos, to_pos) 
+                        # DO THE MOVE OF THE CLIENT (AND GET SPECIAL MOVE {CASTLEING, PROMOTION, ETC..} TAHT HAPPENED DUE TO THIS MOVE)
+                        special_move = self.board.move_piece(from_pos, to_pos) 
                         # TELL ALL OTHER CLIENT CONNECTED TO THE GAME TO REPLICATE MOVE
-                        self.server.send_packet_list(self.connected_clients, {'type' : MESSAGE_TYPE.MOVE, 'from':from_pos, 'to':to_pos})
+                        self.server.send_packet_list(self.connected_clients, {'type' : MESSAGE_TYPE.MOVE, 'from':from_pos, 'to':to_pos, 'special_move':special_move})
                         
-                        # SET THE STATUS OF  ALL ORBS OF THE GAME TO OCCUPIED
+                        # SET THE STATUS OF ALL ORBS OF THE GAME TO OCCUPIED
                         for orb_client in self.connected_orb_clients :
                             orb_instance = self.get_client_instance(orb_client)
                             if (orb_instance!=None) : orb_instance.set_status(ORB_STATUS.OCCUPIED)

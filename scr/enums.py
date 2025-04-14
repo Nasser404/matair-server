@@ -72,3 +72,7 @@ class PIECE_COLOR(IntEnum) :
     WHITE = 0
     BLACK = 1
 
+class SPECIAL_MOVES(IntEnum):
+    EN_PASSANT = 0
+    PROMOTION  = 1
+    CASTLE     = 2
