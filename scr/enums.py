@@ -73,6 +73,7 @@ class PIECE_COLOR(IntEnum) :
     BLACK = 1
 
 class SPECIAL_MOVES(IntEnum):
-    EN_PASSANT = 0
-    PROMOTION  = 1
-    CASTLE     = 2
+    PROMOTION = 0
+    EN_PASSANT =1 # DISABELED
+    CASTLE = 2 # DISABELED
+    NONE = 3 # DISABELED

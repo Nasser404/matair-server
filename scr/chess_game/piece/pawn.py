@@ -28,24 +28,24 @@ class Pawn(Piece) :
             if (not self.on_team([x-1, y + self.forward])) : self.add_move([x-1, y + self.forward])
         
         # en passant left
-        
-        if (not self.cell_empty([x + 1, y])) :
- 
-            piece = self.get_piece([x + 1, y])
-            if (piece.get_color() != self.color) :
-                if (piece.get_type() == PIECE_TYPE.PAWN) :
-                    if (piece.get_pos()[1] == piece.get_last_pos()[1] + 2 * piece.forward) :
-                        self.add_move([x + 1, y + self.forward])
-                        self.en_passant = wrap_pos([x + 1, y + self.forward])
-        
-        # en passant left
-        if (not self.cell_empty([x - 1, y])) :
-            piece = self.get_piece([x - 1, y])
-            if (piece.get_color() != self.color) :
-                if (piece.get_type() == PIECE_TYPE.PAWN) :
-                    if (piece.get_pos()[1] == piece.get_last_pos()[1] + 2 * piece.forward) :
-                        self.add_move([x - 1, y + self.forward])
-                        self.en_passant = wrap_pos([x - 1, y + self.forward])
-                        
+        if False : # DISABELED EN PASSANT
+            if (not self.cell_empty([x + 1, y])) :
+    
+                piece = self.get_piece([x + 1, y])
+                if (piece.get_color() != self.color) :
+                    if (piece.get_type() == PIECE_TYPE.PAWN) :
+                        if (piece.get_pos()[1] == piece.get_last_pos()[1] + 2 * piece.forward) :
+                            self.add_move([x + 1, y + self.forward])
+                            self.en_passant = wrap_pos([x + 1, y + self.forward])
+            
+            # en passant left
+            if (not self.cell_empty([x - 1, y])) :
+                piece = self.get_piece([x - 1, y])
+                if (piece.get_color() != self.color) :
+                    if (piece.get_type() == PIECE_TYPE.PAWN) :
+                        if (piece.get_pos()[1] == piece.get_last_pos()[1] + 2 * piece.forward) :
+                            self.add_move([x - 1, y + self.forward])
+                            self.en_passant = wrap_pos([x - 1, y + self.forward])
+                            
                         
         return self.moves

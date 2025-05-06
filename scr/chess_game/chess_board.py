@@ -127,7 +127,7 @@ class Chess_board() :
     
     def move_piece(self, from_pos : list[int], to_pos : list[int], real_move : bool = True) :
     
-        special_move = {"type" : None}
+        special_move = {"type" : SPECIAL_MOVES.NONE}
         new_x = to_pos[0]
         new_y = to_pos[1]
                 
@@ -145,7 +145,7 @@ class Chess_board() :
                 self.piece_captured(pawn_affected)
                 
                 special_move["type"]           = SPECIAL_MOVES.EN_PASSANT
-                special_move["captured_piece"] = pawn_affected
+                special_move["captured_pawn_pos"] = pawn_affected
                 
                 
         #CASTLE 

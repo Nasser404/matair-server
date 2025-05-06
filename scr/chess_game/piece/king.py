@@ -23,8 +23,8 @@ class King(Piece) :
         for square in possible_moves :
             if (not self.on_team(square)) : self.add_move(square)
             
-        # Right castle
-        if (not self.has_moved) :
+        # Right castle (DISABELED)
+        if (False) : #not self.has_moved 
             rook = self.get_piece([x + 3, y])
             if rook != None :
                 if ((not rook.has_moved) and (rook.get_type() == PIECE_TYPE.ROOK)) :
@@ -34,8 +34,8 @@ class King(Piece) :
                         self.add_move([x+2, y])
                         self.right_castle = [x+2, y]
         
-        #Left castle
-        if (not self.has_moved) :
+        #Left castle # DISABELED
+        if (False) : #not self.has_moved 
             rook = self.get_piece([x - 4, y])
             if rook != None :
                 if ((not rook.has_moved) and (rook.get_type() == PIECE_TYPE.ROOK)) :

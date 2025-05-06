@@ -222,6 +222,7 @@ class Server :
 
     
     def handle_client_identification(self, client, data : dict) :
+        print(data)
         identifier = data['identifier']
         # create and link a client instance (orb, player or viewer) to the client based on the identifier received from the client
         match identifier :
