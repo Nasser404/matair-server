@@ -1,4 +1,4 @@
-from scr.config             import SERVER_PORT, MAX_MISSED_PINGS, PING_INTERVAL
+from scr.config             import SERVER_PORT, MAX_MISSED_PINGS, PING_INTERVAL, SERVER_VERSION
 from scr.utils              import id_generator, remove_client, CREDIT
 from scr.enums              import MESSAGE_TYPE, DISCONNECT_REASONS, CLIENT_TYPE, INFORMATION_TYPE, ORB_STATUS
 from logging                import INFO
@@ -89,7 +89,7 @@ class Server :
     def handle_client_connect(self, client, server) :
         
         # Tell newly connected client to identify (player, orb, viewer)
-        self.send_packet(client, {"type" : MESSAGE_TYPE.IDENTIFICATION})
+        self.send_packet(client, {"type" : MESSAGE_TYPE.IDENTIFICATION, "server_ver" : SERVER_VERSION})
         self.all_client.append(client)
         
         #print(f"NEW CLIENT WITH ID : {client['id']} CONNECTED !")
