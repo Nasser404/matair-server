@@ -15,7 +15,7 @@ And the GameMaker client: [Mat@ir Game Client Repository](https://github.com/Nas
 
 ## Prerequisites
 
-*   **Python:** Version 3.7+ 
+*   **Python:** Version 3.11+ 
 *   **Pip:** Python package installer
 *   **Required Libraries:**
     *   `websocket-server`
