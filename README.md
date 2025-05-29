@@ -68,10 +68,10 @@ A brief overview of the project's directory structure:
 matair-server/
 ├── main.py
 ├── requirements.txt
-├── config.py
-├── enums.py
-├── utils.py
 ├── scr/
+│   ├── config.py
+│   ├── enums.py
+│   ├── utils.py
 │   ├── chess_game/
 │   │   ├── chess_board.py
 │   │   └── piece/
@@ -89,5 +89,5 @@ matair-server/
 │   │   └── viewer.py
 │   └── server/
 │       ├── game_server.py
-│       ├── game.py
+│       └── game.py
 ```
