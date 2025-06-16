@@ -20,7 +20,9 @@ class Orb(Game_client) :
         if (self.orb_id == None) : return
         self.disconnect_from_game()
         self.disconnect_all_client()
-        del self.server.orbs[self.orb_id] # REMOVE SELF FROM LIST OF ORBS
+        try:
+            del self.server.orbs[self.orb_id] # REMOVE SELF FROM LIST OF ORBS
+        except : pass
 
         
     def get_orb_id(self) : return self.orb_id
