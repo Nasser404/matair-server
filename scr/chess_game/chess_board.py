@@ -1,12 +1,13 @@
-from scr.chess_game.piece.pawn      import Pawn
-from scr.chess_game.piece.knight    import Knight
-from scr.chess_game.piece.bishop    import Bishop
-from scr.chess_game.piece.rook      import Rook
-from scr.chess_game.piece.queen     import Queen
-from scr.chess_game.piece.king      import King
-from scr.enums                      import PIECE_COLOR, PIECE_TYPE, SPECIAL_MOVES
-from scr.utils                      import wrap_pos
-from numpy                          import array_equal
+from scr.chess_game.piece.piece_type    import Piece
+from scr.chess_game.piece.pawn          import Pawn
+from scr.chess_game.piece.knight        import Knight
+from scr.chess_game.piece.bishop        import Bishop
+from scr.chess_game.piece.rook          import Rook
+from scr.chess_game.piece.queen         import Queen
+from scr.chess_game.piece.king          import King
+from scr.enums                          import PIECE_COLOR, PIECE_TYPE, SPECIAL_MOVES
+from scr.utils                          import wrap_pos
+from numpy                              import array_equal
 
 class Chess_board() :
     def __init__(self):
@@ -24,7 +25,6 @@ class Chess_board() :
         self.turn           = PIECE_COLOR.WHITE
         self.number_of_turn = 0
         self.checked        = None
-        self.is_false_board = False
         self.game_ended     = False
         self.winner         = None
         self.possible_moves = [[], []]
@@ -60,9 +60,15 @@ class Chess_board() :
         self.add_piece(PIECE_TYPE.KING, PIECE_COLOR.WHITE, [4, 7])
         
                 
-        self.calculate_all_moves()
+        self.square_reached[PIECE_COLOR.WHITE] = self.get_all_attacked_squares(PIECE_COLOR.WHITE)
+        self.square_reached[PIECE_COLOR.BLACK] = self.get_all_attacked_squares(PIECE_COLOR.BLACK)
 
-    def get_grid(self) : return self.grid 
+    def get_grid(self) -> list[list[Piece]]: return self.grid 
+    
+    def get_piece(self, pos :list) -> Piece :
+        w_pos = wrap_pos(pos)
+        return self.grid[int(w_pos[0])][int(w_pos[1])]
+    
     
     def add_piece(self, type : PIECE_TYPE, color : PIECE_COLOR, pos : list[int]) :
         x = pos[0]
@@ -75,41 +81,10 @@ class Chess_board() :
             case PIECE_TYPE.KING    : self.grid[x][y] = King(pos, color, self)
             case PIECE_TYPE.QUEEN   : self.grid[x][y] = Queen(pos, color, self)
             
-    def calculate_all_moves(self) :
-        self.square_reached[PIECE_COLOR.WHITE] = self.check_square_reached(PIECE_COLOR.WHITE)
-        self.square_reached[PIECE_COLOR.BLACK] = self.check_square_reached(PIECE_COLOR.BLACK)
+    def remove_piece(self, pos : list[int]) :
+        self.grid[int(pos[0])][int(pos[1])] = None        
         
-    def calculate_legal_moves(self, color : PIECE_COLOR) :
-        self.possible_moves[color] = self.check_possible_moves(color)
         
-    def check_square_reached(self, color : PIECE_COLOR) -> list:
-        possible_moves = []
-        for i in range(8) :
-            for j in range(8) :
-                piece = self.grid[i][j]
-                if (piece == None) : continue
-                if (piece.get_color() != color) : continue
-                
-                moves = piece.check_moves()
-                possible_moves += moves
-        return possible_moves
-                
-    def check_possible_moves(self, color : PIECE_COLOR) -> list :
-        possible_moves = []
-     
-        for i in range(8) :
-            for j in range(8) :
-                piece = self.grid[i][j]
-                if (piece == None) : continue
-                moves = piece.check_moves()
-                if (not self.is_false_board) : moves = self.remove_illegal_moves(piece, moves, color)
-                if (piece.get_color() == color) : possible_moves += moves
-        return possible_moves
-                
-        
-    def get_number_possible_moves(self, color : PIECE_COLOR) -> int : return len(self.possible_moves[color])
-    
-    
     def update_piece_last_pos(self, color : PIECE_COLOR) :
         for i in range(8) :
             for j in range(8) :
@@ -120,162 +95,244 @@ class Chess_board() :
                 if (piece.get_color() != color) : continue
                 
                 piece.set_last_pos()
-    def get_piece(self, pos :list):
-        w_pos = wrap_pos(pos)
-        return self.grid[int(w_pos[0])][int(w_pos[1])]
     
     
-    def move_piece(self, from_pos : list[int], to_pos : list[int], real_move : bool = True) :
-    
-        special_move = {"type" : SPECIAL_MOVES.NONE}
-        new_x = to_pos[0]
-        new_y = to_pos[1]
-                
-        if (not self.cell_empty(to_pos)) : 
-            self.piece_captured(to_pos)
-            
-        piece = self.get_piece(from_pos)
-        self.remove_piece(from_pos)
-        
-
-        # EN PASSANT
-        if (piece.get_type() == PIECE_TYPE.PAWN) :
-            if array_equal(to_pos,piece.en_passant) :
-                pawn_affected = [to_pos[0], to_pos[1] - piece.forward]
-                self.piece_captured(pawn_affected)
-                
-                special_move["type"]           = SPECIAL_MOVES.EN_PASSANT
-                special_move["captured_pawn_pos"] = pawn_affected
-                
-                
-        #CASTLE 
-        elif (piece.get_type() == PIECE_TYPE.KING) :
-            king_pos = piece.get_pos()
-            
-            
-            if (array_equal(to_pos, piece.right_castle)) :
-
-                
-                rook_affected = [king_pos[0]+3, king_pos[1]]
-                new_rook_pos  = [king_pos[0]+1, king_pos[1]]
-               
-                self.move_piece(rook_affected, new_rook_pos, False)
-                
-                special_move["type"]        = SPECIAL_MOVES.CASTLE
-                special_move["rook_from"]   = rook_affected
-                special_move["rook_to"]     = new_rook_pos
-        
-                
-            if (array_equal(to_pos, piece.left_castle)) :
-                
-                rook_affected = [king_pos[0]-4,king_pos[1]]
-                new_rook_pos  = [king_pos[0]-1,king_pos[1]]
-                self.move_piece(rook_affected, new_rook_pos, False)
-                
-                                
-                special_move["type"]        = SPECIAL_MOVES.CASTLE
-                special_move["rook_from"]   = rook_affected
-                special_move["rook_to"]     = new_rook_pos
-        #PROMOTION    
-        
-        if ((new_y == 0) or (new_y == 7)) and (piece.get_type() == PIECE_TYPE.PAWN) :
-            
-            self.add_piece(PIECE_TYPE.QUEEN, piece.get_color(), to_pos)
-            
-            special_move["type"]        = SPECIAL_MOVES.PROMOTION
-            special_move["pawn_pos"]    = from_pos
-        else :
-            self.grid[int(new_x)][int(new_y)] = piece
-            self.grid[int(new_x)][int(new_y)].set_pos(to_pos)
-            self.grid[int(new_x)][int(new_y)].set_moved()
-            
-            
-    
-        if (real_move) : 
-            self.next_turn()
-            return special_move
-        
-        
-        
-    def remove_piece(self, pos : list[int]) :
-        self.grid[int(pos[0])][int(pos[1])] = None
-        
-    def piece_captured(self, pos :list[int]) :
-
+    def piece_captured(self, pos: list[int], is_temporary_move: bool = False):
         piece = self.get_piece(pos)
-        if (not self.is_false_board) :
-            if piece.get_color() == PIECE_COLOR.WHITE : self.captured_pieces["white"][piece.get_name()]+=1
-            else : self.captured_pieces["black"][piece.get_name()]+=1
+        if not is_temporary_move :
+            color_key = "white" if piece.get_color() == PIECE_COLOR.WHITE else "black"
+            self.captured_pieces[color_key][piece.get_name()] += 1
         self.remove_piece(pos)
         
-    
-    def is_checked(self, color : PIECE_COLOR) :
-        possible_enemy_move = self.square_reached[not color]
-        
-        #FIND KING COORDINATES
-        king_coord = []
+    def find_king_pos(self, color : PIECE_COLOR) -> list[int] :
         for i in range(8) :
             for j in range(8) :
                 piece = self.grid[i][j]
-                if (piece == None) : continue
-                if (piece.get_color() != color) : continue
                 
-                if (piece.get_type() == PIECE_TYPE.KING) :
-                    king_coord = [i, j]
-                    break
+                if piece is None or piece.get_color() != color:
+                    continue
         
-        #CHECK IF ONE OF POSSIBLE ENEMY MOVE HIT COORDINATES
+                if (piece.get_type() == PIECE_TYPE.KING) :
+                    return [i, j]
+                      
+        return None        
+    
+    def cell_safe(self, pos : list[int], color : PIECE_COLOR) :
+        possible_enemy_move = self.square_reached[not color]
+
+        # CHECK IF ONE OF POSSIBLE ENEMY MOVE HIT COORDINATES
         for move in possible_enemy_move :
-            if array_equal(move, king_coord) : 
+            if (array_equal(move, pos)) : return False
+        
+        return True
+    
+    def cell_empty(self, pos) :
+        if (pos[1] > 7) or (pos[1] < 0) : return False
+        
+        w_pos = wrap_pos(pos)
+        return self.grid[int(w_pos[0])][int(w_pos[1])] == None
+    
+    
+    def get_legal_moves(self, color: PIECE_COLOR) -> list:
+        """
+        Generates a list of all legal moves for a given color.
+        A move is legal if it is a valid move for the piece and does not
+        leave the player's own king in check.
+        """
+        legal_moves = []
+        for i in range(8):
+            for j in range(8):
+                piece = self.grid[i][j]
+                if piece is None or piece.get_color() != color:
+                    continue
+
+                # Get all potential moves for this piece
+                pseudo_legal_moves = piece.check_moves()
+
+                # Filter out moves that would leave the king in check
+                for move in pseudo_legal_moves:
+                    if not self.is_checked_after_move(piece.get_pos(), move, color):
+                        legal_moves.append(move) # Or better, store as (from_pos, to_pos)
+
+        return legal_moves
+
+        
+    def get_all_attacked_squares(self, color: PIECE_COLOR) -> list:
+        """
+        Generates a list of all squares attacked by a given color.
+        """
+        attacked_squares = []
+        for i in range(8):
+            for j in range(8):
+                piece = self.grid[i][j]
+                if piece is None or piece.get_color() != color:
+                    continue
+                
+                # For pawns, attack moves are different from forward moves.
+                # This logic might need to be specific within the piece's move generation.
+                # For now, we assume check_moves() returns all possible squares.
+                moves = piece.check_moves() 
+                attacked_squares.extend(moves)
+        return attacked_squares
+        
+    
+    def move_piece(self, from_pos: list[int], to_pos: list[int], real_move: bool = True) -> dict:
+        
+        # This dictionary will hold all information needed to undo the move.
+        move_info = {
+            "from_pos": from_pos,
+            "to_pos": to_pos,
+            "captured_piece": None,
+            "special_move": {"type": SPECIAL_MOVES.NONE}
+        }
+
+        piece = self.get_piece(from_pos)
+        if piece is None: return # Should not happen with valid moves
+
+        # --- Capture critical 'before' state ---
+        move_info["was_moved"] = piece.has_moved # Capture status BEFORE moving
+
+        # --- Execute the move ---
+        
+        # Is a piece being captured?
+        captured_piece = self.get_piece(to_pos)
+        if captured_piece:
+            move_info["captured_piece"] = captured_piece
+            # The piece_captured method updates the count, which we'll need to reverse
+            self.piece_captured(to_pos, is_temporary_move=not real_move)
+        
+        # Move the piece in the grid
+        self.grid[int(to_pos[0])][int(to_pos[1])] = piece
+        self.remove_piece(from_pos)
+        piece.set_pos(to_pos)
+
+        # --- Handle Special Moves ---
+        
+        # EN PASSANT
+        if piece.get_type() == PIECE_TYPE.PAWN and array_equal(to_pos, piece.en_passant):
+            pawn_affected_pos = [to_pos[0], to_pos[1] - piece.forward]
+            # We need to explicitly get the captured pawn here, because it's not at to_pos
+            move_info["captured_piece"] = self.get_piece(pawn_affected_pos)
+            self.piece_captured(pawn_affected_pos, is_temporary_move=not real_move)
+            
+            move_info["special_move"]["type"] = SPECIAL_MOVES.EN_PASSANT
+            move_info["special_move"]["captured_pawn_pos"] = pawn_affected_pos
+
+        # CASTLE
+        elif piece.get_type() == PIECE_TYPE.KING:
+            king_pos = piece.get_pos()
+            if array_equal(to_pos, piece.right_castle):
+                rook_from = [king_pos[0] + 3, king_pos[1]]
+                rook_to = [king_pos[0] + 1, king_pos[1]]
+                self.move_piece(rook_from, rook_to, False) # Recursive call is fine for this
+                
+                move_info["special_move"] = {"type": SPECIAL_MOVES.CASTLE, "rook_from": rook_from, "rook_to": rook_to}
+            if array_equal(to_pos, piece.left_castle):
+                rook_from = [king_pos[0] - 4, king_pos[1]]
+                rook_to = [king_pos[0] - 1, king_pos[1]]
+                self.move_piece(rook_from, rook_to, False) # Recursive call is fine for this
+                
+                move_info["special_move"] = {"type": SPECIAL_MOVES.CASTLE, "rook_from": rook_from, "rook_to": rook_to}
+          
+
+        # PROMOTION
+        if (to_pos[1] == 0 or to_pos[1] == 7) and piece.get_type() == PIECE_TYPE.PAWN:
+            self.add_piece(PIECE_TYPE.QUEEN, piece.get_color(), to_pos)
+            move_info["special_move"] = {"type": SPECIAL_MOVES.PROMOTION, "pawn_pos": to_pos}
+            # The original piece is now gone, so we need to save it for the undo
+            move_info["promoted_from_pawn"] = piece 
+
+        else:
+            # Standard move completion
+            piece.set_moved()
+
+        # If it's a real move, proceed to the next turn. Otherwise, just return the undo info.
+        if real_move:
+            self.next_turn()
+        
+        return move_info
+        
+    def unmake_move(self, undo_info: dict):
+        from_pos = undo_info["from_pos"]
+        to_pos = undo_info["to_pos"]
+
+        # Get the piece that moved
+        moving_piece = self.get_piece(to_pos)
+
+        # --- Reverse Promotion ---
+        if undo_info["special_move"]["type"] == SPECIAL_MOVES.PROMOTION:
+            # The piece at to_pos is a Queen, replace it with the original pawn
+            pawn = undo_info["promoted_from_pawn"]
+            self.grid[int(to_pos[0])][int(to_pos[1])] = pawn
+            moving_piece = pawn 
+
+        # --- Move the piece back to its original square ---
+        self.grid[int(from_pos[0])][int(from_pos[1])] = moving_piece
+        moving_piece.set_pos(from_pos)
+        self.grid[int(to_pos[0])][int(to_pos[1])] = None 
+
+        # --- Restore moved status ---
+        if not undo_info["was_moved"]:
+            moving_piece.set_moved(False) 
+
+        # --- Put back any captured piece ---
+        captured_piece = undo_info["captured_piece"]
+        if captured_piece:
+            capture_pos = to_pos # Default capture position
+            
+            if undo_info["special_move"]["type"] == SPECIAL_MOVES.EN_PASSANT:
+                capture_pos = undo_info["special_move"]["captured_pawn_pos"]
+            
+            self.grid[int(capture_pos[0])][int(capture_pos[1])] = captured_piece
+            
+            # We also need to decrement the captured pieces count if it was incremented
+            color_key = "white" if captured_piece.get_color() == PIECE_COLOR.WHITE else "black"
+            self.captured_pieces[color_key][captured_piece.get_name()] -= 1
+
+        # --- Undo Castling's rook move ---
+        if undo_info["special_move"]["type"] == SPECIAL_MOVES.CASTLE:
+            rook_from = undo_info["special_move"]["rook_from"]
+            rook_to = undo_info["special_move"]["rook_to"]
+            rook = self.get_piece(rook_to)
+            
+            self.grid[int(rook_from[0])][int(rook_from[1])] = rook
+            rook.set_pos(rook_from)
+            self.grid[int(rook_to[0])][int(rook_to[1])] = None
+            rook.set_moved(False) # The rook had not moved before a castle    
+        
+  
+    
+    def is_checked(self, color: PIECE_COLOR):
+
+        enemy_attacks = self.square_reached[not color]
+        
+        # FIND KING COORDINATES
+        king_coord = self.find_king_pos(color) 
+        if king_coord is None: return False
+        
+        # CHECK IF ONE OF POSSIBLE ENEMY MOVE HIT COORDINATES
+        for move in enemy_attacks:
+            if array_equal(move, king_coord):
                 return True
         return False
     
-    def get_board_data(self) :
-        data = {'turn' : self.turn, 'captured_pieces' : self.captured_pieces, 'number_of_turn' : self.number_of_turn}
-        board_data = [["" for i in range(8)] for j in range(8)]
-        for i in range(8) :
-            for j in range(8) :
-                piece = self.grid[i][j]
-                if (piece == None) : continue
-                
-                board_data[i][j] = piece.get_data()
-        data['board'] = board_data
+ 
+    def is_checked_after_move(self, from_pos: list[int], to_pos: list[int], color: PIECE_COLOR) -> bool:
+        # 1. Make the move and get the undo information
+        undo_info = self.move_piece(from_pos, to_pos, real_move=False)
+
+        # 2. Check if the king is now in check
+        self.square_reached[not color] = self.get_all_attacked_squares(not color)
+        is_in_check = self.is_checked(color) 
+
+        # 3. Unmake the move
+        self.unmake_move(undo_info)
         
-        return data
-    
-    def load_board_data(self, data : dict) :
-        self.grid = [[None for i in range(8)] for j in range(8)]
-        self.captured_pieces = data['captured_pieces']
-        self.turn            = data['turn']
-        self.number_of_turn       = data['number_of_turn']
-        
-        
-        board_data      = data['board']
-        for i in range(8) :
-            for j in range(8) :
-                piece = board_data[i][j]
-                if (piece == '') : continue
-                
-                piece_data  = piece.split(';')
-                piece_type  = piece_data[0]
-                piece_color = piece_data[1]
-                piece_moved = piece_data[2]
-                self.add_piece(int(piece_type), int(piece_color), [i,j])
-                self.grid[i][j].set_moved(piece_moved)
-    
-    def is_checked_after_move(self, from_pos : list[int], to_pos : list[int], color : PIECE_COLOR) : # HEAVY !!
-        # CREATE A FALSE BOARD MAKE THE POSSIBLE MOVE ON FAKE BOARD AND RETURN IF KING IS STILL CHECKED ON FALSE BOARD
-        real_board_data = self.get_board_data()
-        fake_board      = Chess_board()
-        fake_board.load_board_data(real_board_data)
-        fake_board.is_false_board = True
-        
-        if self.get_piece(from_pos) == None : return
-        fake_board.move_piece(from_pos, to_pos)
-        
-        
-      
-        return fake_board.is_checked(color)
+        # 4. restore the opponent's attack map to its previous state
+        self.square_reached[not color] = self.get_all_attacked_squares(not color)
+
+        return is_in_check
+
     
     def remove_illegal_moves(self, piece, possible_moves : list[list[int]], color : PIECE_COLOR) :
         clean_moves = []
@@ -303,44 +360,64 @@ class Chess_board() :
         return False
         
     
-    def cell_safe(self, pos : list[int], color : PIECE_COLOR) :
-        possible_enemy_move = self.square_reached[not color]
-
-        # CHECK IF ONE OF POSSIBLE ENEMY MOVE HIT COORDINATES
-        for move in possible_enemy_move :
-            if (array_equal(move, pos)) : return False
-        
-        return True
-    def cell_empty(self, pos) :
-        if (pos[1] > 7) or (pos[1] < 0) : return False
-        
-        w_pos = wrap_pos(pos)
-        return self.grid[int(w_pos[0])][int(w_pos[1])] == None
     
     
-    def next_turn(self) :
-        self.number_of_turn+=1
+    
+    def next_turn(self):
+        self.number_of_turn += 1
         self.turn = not self.turn
         self.update_piece_last_pos(self.turn)
-        self.calculate_all_moves()
-        if (not self.is_false_board) : self.calculate_legal_moves(self.turn)
         
-        # VERIFY CHECKMATE
-        if (self.is_checked(self.turn)) :
+
+        # Calculate and store the legal moves for the current player.
+        self.possible_moves[self.turn] = self.get_legal_moves(self.turn)
+
+        # Update the list of squares the opponent attacks for check detection.
+        self.square_reached[not self.turn] = self.get_all_attacked_squares(not self.turn)
+        
+        # VERIFY CHECKMATE / STALEMATE
+        is_in_check = self.is_checked(self.turn)
+        
+        if len(self.possible_moves[self.turn]) == 0:
+            self.game_ended = True
             
-            if (not self.is_false_board) :
-                number_of_moves = self.get_number_possible_moves(self.turn)
-                if (number_of_moves <= 0) :
-                    self.game_ended = True
-                    self.winner = not self.turn
-        else :
-            # STALEMATE
-            if (not self.is_false_board) :
-                number_of_moves = self.get_number_possible_moves(self.turn)
-                if (number_of_moves <= 0) :
-                    self.game_ended = True
-                    self.winner = None
-                    
+            if is_in_check:
+                self.winner = not self.turn # Checkmate
+            else:
+                self.winner = None # Stalemate
+            
+    
+    def get_board_data(self) :
+        data = {'turn' : self.turn, 'captured_pieces' : self.captured_pieces, 'number_of_turn' : self.number_of_turn}
+        board_data = [["" for i in range(8)] for j in range(8)]
+        for i in range(8) :
+            for j in range(8) :
+                piece = self.grid[i][j]
+                if (piece == None) : continue
+                
+                board_data[i][j] = piece.get_data()
+        data['board'] = board_data
+        
+        return data
+    
+    def load_board_data(self, data : dict) :
+        self.grid = [[None for i in range(8)] for j in range(8)]
+        self.captured_pieces = data['captured_pieces']
+        self.turn            = data['turn']
+        self.number_of_turn  = data['number_of_turn']
+        board_data           = data['board']
+        for i in range(8) :
+            for j in range(8) :
+                piece = board_data[i][j]
+                if (piece == '') : continue
+                
+                piece_data  = piece.split(';')
+                piece_type  = piece_data[0]
+                piece_color = piece_data[1]
+                piece_moved = piece_data[2]
+                self.add_piece(int(piece_type), int(piece_color), [i,j])
+                self.grid[i][j].set_moved(piece_moved)
+        
     def get_board_string(self) :
         board_string = ""
         for i in range(8) :

@@ -173,8 +173,10 @@ class Game :
         if (self.virtual_game) :                           # VIRTUAL GAME CLOSING REQUIEREMENT
             
             if (self.get_number_of_player() < 2) and (self.get_number_of_turn() > 4) :          # IF MORE THAN 4 MOVE HAVE BEEN MADE AND ONE PLAYER QUIT GAME
-                self.board.game_ended = True                                                    # END THE GAME (NOT CLOSING JUST ENDING)
-                self.board.winner = PIECE_COLOR.WHITE if (self.client_colors[PIECE_COLOR.BLACK] == None) else PIECE_COLOR.BLACK # SET THE PLAYER LEFT AS THE WINNVER
+               
+                if self.board.game_ended == False :
+                    self.board.game_ended = True                                                # END THE GAME (NOT CLOSING JUST ENDING) 
+                    self.board.winner = PIECE_COLOR.WHITE if (self.client_colors[PIECE_COLOR.BLACK] == None) else PIECE_COLOR.BLACK # SET THE PLAYER LEFT AS THE WINNVER
                 
             if (self.get_number_of_player()<=0) :          # IF NO PLAYER LEFT IN THE GAME
                 self.close()                               # CLOSE GAME
@@ -201,7 +203,7 @@ class Game :
         reason      = None  # IF COULD NOT DO MOVE OF PLAYER STORE THE REASON (INFORMATION TYPE ENUM)
         
         # GET CLIENT MOVE INFORMATION
-        color    = move_data['color']
+        color    = int(move_data['color'])
         from_pos = [int(i) for i in move_data['from']]
         to_pos   = [int(i) for i in move_data['to']]
         
@@ -214,13 +216,17 @@ class Game :
                     orbs_free = False
                     break
             
-        if (orbs_free) :                                                                                          # IF ALL THE ORBS OF THE GAME NOT OCCUPIED (PHYSICALLY MOVING)                                              
-            if ((client['id'] in [_client_['id'] for _client_ in self.connected_player_clients])) :               # IF CLIENT IS A PLAYER IN GAME AND ORBS ARE FREE
-                if (self.get_game_turn() == color) :                                                              # IF CLIENT COLOR IS CURRENT GMAE TURN
+            
+
+
+        if (orbs_free) :                                                                                          # IF ALL THE ORBS OF THE GAME ARE FREE ( NOT PHYSICALLY MOVING)                                              
+            if ((client['id'] in [_client_['id'] for _client_ in self.connected_player_clients])) :               # IF CLIENT IS A PLAYER IN GAME
+                if (self.get_game_turn() == color) and (self.client_colors[color]['id'] == client['id']) :              # IF CLIENT ASKING THE MOVE IS ACTUALLY THE CLIENT OF THIS COLOR
                     if (self.is_move_legal(from_pos, to_pos)) :                                                   # IF CLIENT MOVE IS LEGAL
                         
                         # DO THE MOVE OF THE CLIENT (AND GET SPECIAL MOVE {CASTLEING, PROMOTION, ETC..} TAHT HAPPENED DUE TO THIS MOVE)
-                        special_move = self.board.move_piece(from_pos, to_pos) 
+                        move_info = self.board.move_piece(from_pos, to_pos) 
+                        special_move = move_info["special_move"]
                         # TELL ALL OTHER CLIENT CONNECTED TO THE GAME TO REPLICATE MOVE
                         self.server.send_packet_list(self.connected_clients, {'type' : MESSAGE_TYPE.MOVE, 'from':from_pos, 'to':to_pos, 'special_move':special_move})
                         
