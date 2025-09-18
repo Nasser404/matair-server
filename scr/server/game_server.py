@@ -280,7 +280,7 @@ class Server :
         orb = self.get_client_instance(client)
         orb.set_orb_id(orb_id)
         orb.set_code(orb_code)
-        orb.reset()
+
         
         self.orbs[orb_id] = client # ADD SELF TO LIST OF ORBS
         

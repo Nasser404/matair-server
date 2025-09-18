@@ -10,7 +10,7 @@ class Orb(Game_client) :
         self.orb_idle = False
         self.client_on_orb = []
         self.main_client   = []
-        self.status                = ORB_STATUS.IDLE
+        self.status                = ORB_STATUS.OCCUPIED
         
     def connected_to_server(self) :
         self.send_packet({'type' : MESSAGE_TYPE.ORB_CONNECT})
