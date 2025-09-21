@@ -14,7 +14,7 @@ def wrap_pos(pos : list) -> list:
     range = max - min + 1
     return[(((pos[0] - min) % range) + range) % range + min, pos[1]]
 
-CREDIT ="""
+CREDIT =r"""
                                          _        _                                                                      
                                         | |      (_)                                                                     
   ______ ______ ______   _ __ ___   __ _| |_ __ _ _ _ __      ___  ___ _ ____   _____ _ __   ______ ______ ______ ______ 
