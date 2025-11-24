@@ -160,28 +160,33 @@ class Server :
     def send_ping(self) :
         print("\nPING THREAD STARTED\n")
         while True:
-            sleep(PING_INTERVAL)
-            current_time = time()
-            
-            disconnected_clients = []
+            try :
+                sleep(PING_INTERVAL)
+                current_time = time()
+                
+                disconnected_clients = []
 
-            for client_id, client_instance in self.clients_instance.items():  
-                # get client last ping response
-                last_response = client_instance.last_response
+                for client_id, client_instance in self.clients_instance.items():  
+                    # get client last ping response
+                    last_response = client_instance.last_response
 
-                if current_time - last_response > PING_INTERVAL * MAX_MISSED_PINGS:
-                    # if client last ping response exceed a certain a time, timeout the client
-                    print(f"Client {client_id} timed out")
-                    disconnected_clients.append(client_instance.client)
-                else:
-                    # Send ping to client
-                    try:
-                        client_instance.send_packet({'type' : MESSAGE_TYPE.PING})
-                    except Exception:
+                    if current_time - last_response > PING_INTERVAL * MAX_MISSED_PINGS:
+                        # if client last ping response exceed a certain a time, timeout the client
+                        print(f"Client {client_id} timed out")
                         disconnected_clients.append(client_instance.client)
+                    else:
+                        # Send ping to client
+                        try:
+                            client_instance.send_packet({'type' : MESSAGE_TYPE.PING})
+                        except Exception:
+                            disconnected_clients.append(client_instance.client)
 
-            for client in disconnected_clients:
-                self.terminate_client(client)
+                for client in disconnected_clients:
+                    self.terminate_client(client)
+                    
+            except Exception as e:
+                print(f"[PING] Unexpected error in ping thread: {e}")
+                time.sleep(1)
                 
     def handle_pong(self, client, data) :
         # response to ping received, update client last ping response

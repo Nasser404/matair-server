@@ -5,7 +5,7 @@
 Python WebSocket server for the Mat@ir project. This server handles game logic, player connections, and real-time data synchronization between clients.
 
 Learn more about the main Mat@ir project here: [HACKADAY PAGE](https://hackaday.io/project/202508-matir)
-And the GameMaker client: [Mat@ir Game Client Repository](https://github.com/Nasser404/matair-game) <!-- Link to your game client repo -->
+And the GameMaker client: [Mat@ir Game Client Repository](https://github.com/Nasser404/matair-game) 
 
 ## Features
 
