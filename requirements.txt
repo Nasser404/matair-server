@@ -1,2 +1,2 @@
 websocket-server==0.6.4
-numpy
+numpy==2.3.4
