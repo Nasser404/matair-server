@@ -1,50 +1,48 @@
-from scr.enums      import DISCONNECT_REASONS
-from time           import time
+from time       import time
 
-class Game_client() :
-    def __init__(self, client, server, type = None):
-        self.server             = server
-        self.client             = client
-        self.type               = type
-        self.id                 = client['id']
-        self.connected_game_id  = None
-        self.color              = None
-        self.name               = ""
-        self.last_response      = time()
+from scr.config import CLIENT_TIMEOUT
+from scr.enums  import DisconnectReason
 
-    def send_packet(self, data : dict) :
+
+class GameClient:
+    """Server-side state of one identified connection (base class of Orb, Player and Viewer)."""
+    type    = None              # ClientType
+    timeout = CLIENT_TIMEOUT    # seconds of silence before being dropped
+
+    def __init__(self, client: dict, server):
+        self.client         = client                # websocket_server client: {'id', 'handler', 'address'}
+        self.server         = server
+        self.id             = client['id']
+        self.game           = None                  # Game this client is in
+        self.color          = None
+        self.name           = ""
+        self.last_response  = time()                # last message received from this client
+
+    def __str__(self):
+        label = f"{self.type.name.lower()}#{self.id}"
+        return f"{label} '{self.name}'" if self.name else label
+
+    def send_packet(self, data: dict):
         self.server.send_packet(self.client, data)
-    
-    def get_client(self)            -> dict : return self.client
-    def get_type(self)              -> int  : return self.type
-    def get_connected_game_id(self) -> str  : return self.connected_game_id
-    def get_color(self)             -> int  : return self.color
 
-    def get_name(self)              -> str  : return self.name
-    def is_in_game(self)            -> bool : return (self.connected_game_id != None)
-    def get_game(self)                      : return None if (self.connected_game_id == None) else self.server.games.get(self.connected_game_id, None)
-    
-    def get_client_instance(self, client : dict)   :
-        return None if client == None else self.server.clients_instance.get(client['id'], None)
-    
+    def kick(self, reason: DisconnectReason = DisconnectReason.NO_REASON):
+        """Tell the client why, then close its connection gracefully."""
+        self.server.disconnect_client(self.client, reason=reason)
 
-    def set_color(self, color : int)                         : self.color = color
-    def set_name(self, name : str)                           : self.name  = name
-    def set_connected_game_id(self, connected_game_id : str) : self.connected_game_id = connected_game_id
-    
-    def ask_disconnect(self, client : dict, reason : DISCONNECT_REASONS = DISCONNECT_REASONS.NO_REASON) : self.server.disconnect_client(client, reason=reason)
-    
-    def disconnect_from_game(self) :
-        game = self.get_game()
-        if (game != None) : game.disconnect_client(self.client)
-        self.set_color(color=None)
-        self.set_connected_game_id(connected_game_id=None)
-        
-      
-        #self.send_packet({'type' : MESSAGE_TYPE.GAME_DISCONNECT})
-    
-    
-     
+    def on_identified(self):
+        """Called once the client has said what it is (orb, player or viewer)."""
 
+    def on_disconnected(self):
+        """Called when the connection is gone (closed, dropped or timed out)."""
+        self.leave_game()
 
-        
+    def on_reidentified(self):
+        """Called when this connection identifies again: drop the old state before starting over."""
+        self.on_disconnected()
+
+    def leave_game(self):
+        """Detach from the current game, if any."""
+        if self.game is not None:
+            self.game.remove_client(self)
+        self.color = None
+        self.game  = None

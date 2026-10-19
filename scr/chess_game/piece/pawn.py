@@ -1,51 +1,26 @@
 from scr.chess_game.piece.piece_type    import Piece
-from scr.enums                          import PIECE_COLOR, PIECE_TYPE
-from scr.utils                          import wrap_pos
+from scr.enums                          import PieceType
 
-class Pawn(Piece) :
-    def __init__(self, pos, color, board):
-        super().__init__("Pawn", pos, PIECE_TYPE.PAWN, color, board)
-        self.en_passant = [-1, -1]
-        self.string = "P" if color == PIECE_COLOR.BLACK else "p"
-    
-    def check_moves(self) :
-        self.moves = []
-        
-        x = self.pos[0]
-        y = self.pos[1]
-        
-        # simple forward
-        if (self.cell_empty([x, y + self.forward])) : self.add_move([x, y + self.forward])
-        #double forward
-        if (not self.has_moved) and (self.cell_empty([x, y + 2*self.forward])) : self.add_move([x, y + 2*self.forward])
-        
-        # eat left
-        if (not self.cell_empty([x+1, y + self.forward])) : 
-            if (not self.on_team([x+1, y + self.forward])) : self.add_move([x+1, y + self.forward])
-            
-        # eat right
-        if (not self.cell_empty([x-1, y + self.forward])) : 
-            if (not self.on_team([x-1, y + self.forward])) : self.add_move([x-1, y + self.forward])
-        
-        # en passant left
-        if False : # DISABELED EN PASSANT
-            if (not self.cell_empty([x + 1, y])) :
-    
-                piece = self.get_piece([x + 1, y])
-                if (piece.get_color() != self.color) :
-                    if (piece.get_type() == PIECE_TYPE.PAWN) :
-                        if (piece.get_pos()[1] == piece.get_last_pos()[1] + 2 * piece.forward) :
-                            self.add_move([x + 1, y + self.forward])
-                            self.en_passant = wrap_pos([x + 1, y + self.forward])
-            
-            # en passant left
-            if (not self.cell_empty([x - 1, y])) :
-                piece = self.get_piece([x - 1, y])
-                if (piece.get_color() != self.color) :
-                    if (piece.get_type() == PIECE_TYPE.PAWN) :
-                        if (piece.get_pos()[1] == piece.get_last_pos()[1] + 2 * piece.forward) :
-                            self.add_move([x - 1, y + self.forward])
-                            self.en_passant = wrap_pos([x - 1, y + self.forward])
-                            
-                        
-        return self.moves
+
+class Pawn(Piece):
+    name   = "Pawn"
+    symbol = "p"
+    type   = PieceType.PAWN
+
+    def check_moves(self):
+        x, y = self.pos
+        f = self.forward
+        moves = []
+
+        # forward, and two squares on its first move (both squares must be empty)
+        if self._is_empty(x, y + f):
+            moves.append([x, y + f])
+            if not self.has_moved and self._is_empty(x, y + 2 * f):
+                moves.append([x, y + 2 * f])
+
+        # diagonal captures, also across the a/h seam
+        for dx in (1, -1):
+            if self._has_enemy(x + dx, y + f):
+                moves.append([(x + dx) % 8, y + f])
+
+        return moves

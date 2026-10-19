@@ -1,21 +1,18 @@
-from scr.client.game_client import Game_client
-from scr.enums              import CLIENT_TYPE, MESSAGE_TYPE, DISCONNECT_REASONS
+from scr.client.game_client import GameClient
+from scr.enums              import ClientType, MessageType
 
-class Viewer(Game_client) :
-    def __init__(self, client, server, type= CLIENT_TYPE.VIEWER):
-        super().__init__(client, server, type)
-        
-    def connected_to_server(self) :
-        # send game list to his client
-        self.send_packet({'type' : MESSAGE_TYPE.VIEWER_CONNECT, 'game_info_list' : self.server.get_game_list()})
-    
-    def disconnected_from_server(self) :
-        self.disconnect_from_game()
-        
-    def disconnect_from_game(self):
-        # ask to server to disconnect his client
-        self.ask_disconnect(self.client)
-        return super().disconnect_from_game()
-        
 
-         
+class Viewer(GameClient):
+    type = ClientType.VIEWER
+
+    def on_identified(self):
+        # send the list of ongoing games
+        self.send_packet({'type': MessageType.VIEWER_CONNECT, 'game_info_list': self.server.get_game_list()})
+
+    def leave_game(self):
+        # a viewer leaving its game (or the game closing) is sent back to the menu
+        self.kick()
+        super().leave_game()
+
+    def on_reidentified(self):
+        super().leave_game()    # starting over on the same connection: leave without being kicked

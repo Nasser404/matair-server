@@ -1,67 +1,67 @@
-from scr.enums      import PIECE_COLOR, PIECE_TYPE
-from scr.utils      import wrap_pos
-from numpy          import array_equal
+from scr.enums import PieceColor
 
-class Piece() :
-    def __init__(self, name, pos, type, color, board):
-        self.name           = name
-        self.pos            = pos
-        self.type           = type
-        self.color          = color
-        self.my_board       = board
-        self.moves          = []
-        self.has_moved      = False
-        self.last_pos       = [-1, -1]
-        self.special_moves  = []
-        self.forward        = -1 if color == PIECE_COLOR.WHITE else 1
-    
-    def get_data(self)          -> str : return f"{self.type};{self.color};{int(self.has_moved)}"
-    def get_name(self)          -> str          : return self.name
-    def get_pos(self)           -> list[int]    : return self.pos
-    def get_last_pos(self)      -> list[int]    : return self.last_pos
-    def get_type(self)          -> PIECE_TYPE   : return self.type
-    def get_color(self)         -> PIECE_COLOR  : return self.color
-    def get_moves(self)         -> list[list[int]]   : return self.moves
-    
-    def set_moved(self, moved : bool = True)    : self.has_moved = moved
-    def set_last_pos(self)                      : self.last_pos = self.pos
-    def set_pos(self, new_pos : list[int]) :
-        self.set_last_pos()
-        self.pos = new_pos
-    
-    
-    def add_move(self, move : list[int]) :
-        if (not array_equal(move, self.pos)) : self.moves.append(wrap_pos(move))
-    
-    def on_team(self, pos : list[int]) -> bool :
-        if (pos[1] > 7) or (pos[1] < 0)  : return True
-        
-        grid = self.my_board.get_grid()
-        if self.cell_empty(pos) : return False
-        
-        w_pos = wrap_pos(pos)
-        return (grid[w_pos[0]][w_pos[1]].get_color() == self.color)
-    
-    def cell_empty(self, pos : list[int]) ->bool :
-        if (pos[1] > 7) or (pos[1] < 0)  : return False
-        w_pos = wrap_pos(pos)
-        grid = self.my_board.get_grid()
-        return (grid[w_pos[0]][w_pos[1]] == None)
-        
-    def get_piece(self, pos : list[int]) :
-        if (pos[1] > 7) or (pos[1] < 0)      : return None
-        if self.cell_empty(pos) : return None
-        
-        grid = self.my_board.get_grid()
-        w_pos = wrap_pos(pos)
-        return grid[w_pos[0]][w_pos[1]]
-    
-    def get_string(self) -> str : return self.string
-    
+ORTHOGONAL     = ((1, 0), (-1, 0), (0, 1), (0, -1))
+DIAGONAL       = ((1, 1), (-1, 1), (1, -1), (-1, -1))
+ALL_DIRECTIONS = ORTHOGONAL + DIAGONAL
+
+
+class Piece:
+    """A piece on the cylinder board: columns (x) wrap around (the a-file touches the h-file),
+    rows (y) stop at the edges."""
+    name   = ""     # key in captured_pieces: "Pawn", "Rook", ...
+    symbol = ""     # letter in the board string, uppercase for black
+    type   = None   # PieceType
+
+    def __init__(self, pos: list[int], color: PieceColor, board):
+        self.pos       = pos
+        self.color     = color
+        self.board     = board
+        self.has_moved = False
+        self.forward   = -1 if color == PieceColor.WHITE else 1   # white moves towards row 0
+        self.string    = self.symbol.upper() if color == PieceColor.BLACK else self.symbol
+
+    def get_data(self) -> str:
+        return f"{self.type};{self.color};{int(self.has_moved)}"
+
+    def check_moves(self) -> list[list[int]]:
+        """Squares this piece can reach, without checking whether its own king is left in check."""
+        raise NotImplementedError
+
+    def _square(self, x: int, y: int):
+        """(on_board, piece) for a square. Columns wrap, rows outside 0..7 are off the board."""
+        if not 0 <= y <= 7:
+            return False, None
+        return True, self.board.grid[x % 8][y]
+
+    def _is_empty(self, x: int, y: int) -> bool:
+        on_board, piece = self._square(x, y)
+        return on_board and piece is None
+
+    def _has_enemy(self, x: int, y: int) -> bool:
+        on_board, piece = self._square(x, y)
+        return on_board and piece is not None and piece.color != self.color
+
+    def _jump(self, offsets) -> list[list[int]]:
+        """King and knight: every offset landing on an empty or enemy square."""
+        x, y = self.pos
+        return [[(x + dx) % 8, y + dy] for dx, dy in offsets
+                if self._is_empty(x + dx, y + dy) or self._has_enemy(x + dx, y + dy)]
+
+    def _slide(self, directions) -> list[list[int]]:
+        """Rook, bishop and queen: go in each direction until blocked, capturing an enemy piece."""
+        x, y = self.pos
+        moves = []
+        for dx, dy in directions:
+            for step in range(1, 8):    # at most 7 steps: an 8th would come back to our own square
+                tx, ty = x + dx * step, y + dy * step
+                on_board, piece = self._square(tx, ty)
+                if not on_board:
+                    break
+                if piece is None or piece.color != self.color:
+                    moves.append([tx % 8, ty])
+                if piece is not None:
+                    break
+        return moves
+
     def __str__(self):
         return self.name
-        
-        
-        
-        
-        

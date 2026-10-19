@@ -1,20 +1,15 @@
 from random import choice
 
-def id_generator(size : int = 4, chars : str="ABCDEFHIJKLMNOPQRSTUWXYZ1234567890") -> str :
+# No G and no V: a generated id can never start with "VG", the virtual game prefix.
+ID_CHARS = "ABCDEFHIJKLMNOPQRSTUWXYZ1234567890"
+
+
+def id_generator(size: int = 4, chars: str = ID_CHARS) -> str:
     # generate a random id
     return ''.join(choice(chars) for _ in range(size))
 
-def remove_client(client : dict, list : list) -> list :
-    # filter (remove) and return the list based on given client id
-    return [d for d in list if d.get('id') != client['id']]
 
-def wrap_pos(pos : list) -> list:
-    min = 0
-    max = 7
-    range = max - min + 1
-    return[(((pos[0] - min) % range) + range) % range + min, pos[1]]
-
-CREDIT =r"""
+CREDIT = r"""
                                          _        _                                                                      
                                         | |      (_)                                                                     
   ______ ______ ______   _ __ ___   __ _| |_ __ _ _ _ __      ___  ___ _ ____   _____ _ __   ______ ______ ______ ______ 

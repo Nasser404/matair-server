@@ -1,26 +1,23 @@
-from scr.client.game_client import Game_client
-from scr.enums              import CLIENT_TYPE, MESSAGE_TYPE
+from scr.client.game_client import GameClient
+from scr.enums              import ClientType, MessageType
 
-class Player(Game_client) :
-    def __init__(self, client, server, type= CLIENT_TYPE.PLAYER):
-        super().__init__(client, server, type)
-        self.connnected_orb_id = None
-        
-        
-    def connected_to_server(self) :
-        # send a message to his client to connect as a player
-        self.send_packet({'type' : MESSAGE_TYPE.PLAYER_CONNECT})
-    
-    def disconnected_from_server(self) :
-        self.disconnect_from_game()
-        orb = self.get_orb()
-        if (orb != None) : orb.remove_client(self.client)
-        
-     
-    def get_orb(self):
-        if (self.connnected_orb_id==None) : return None
-        orb_client = self.server.orbs.get(self.connnected_orb_id, None)
-        return self.get_client_instance(orb_client)
-    
-    def set_connected_orb_id(self, orb_id) : self.connnected_orb_id = orb_id
-         
+
+class Player(GameClient):
+    type = ClientType.PLAYER
+
+    def __init__(self, client, server):
+        super().__init__(client, server)
+        self.orb = None             # last Orb this player joined with a code (None in virtual games)
+
+    def on_identified(self):
+        # ask the client to send its name and orb code
+        self.send_packet({'type': MessageType.PLAYER_CONNECT})
+
+    def on_disconnected(self):
+        self.leave_game()
+        if self.orb is not None:
+            self.orb.remove_player(self)
+        # other orbs this connection joined earlier with another code
+        for orb in list(self.server.orbs_by_id.values()):
+            if orb is not self.orb and (self in orb.connected_players or self in orb.main_players):
+                orb.remove_player(self)

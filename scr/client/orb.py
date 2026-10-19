@@ -1,119 +1,103 @@
-from scr.client.game_client import Game_client
-from scr.enums              import CLIENT_TYPE, ORB_STATUS, MESSAGE_TYPE, DISCONNECT_REASONS
-from scr.utils              import remove_client
+from scr.client.game_client import GameClient
+from scr.config             import ORB_TIMEOUT
+from scr.enums              import ClientType, OrbStatus, MessageType, DisconnectReason
 
-class Orb(Game_client) :
-    def __init__(self, client, server, type= CLIENT_TYPE.ORB):
-        super().__init__(client, server, type)
-        self.orb_code = None
-        self.orb_id   = None
-        self.orb_idle = False
-        self.client_on_orb = []
-        self.main_client   = []
-        self.status                = ORB_STATUS.OCCUPIED
-        
-    def connected_to_server(self) :
-        self.send_packet({'type' : MESSAGE_TYPE.ORB_CONNECT})
-    
-    def disconnected_from_server(self) :
-        print(f"orb id : {self.orb_id} DISCONNECTED FROM SERVER !!")
-        if (self.orb_id == None) : return
-        self.disconnect_from_game()
-        self.disconnect_all_client()
-        try:
-            del self.server.orbs[self.orb_id] # REMOVE SELF FROM LIST OF ORBS
-        except : pass
 
-        
-    def get_orb_id(self) : return self.orb_id
-    def get_code(self) : return self.orb_code
-    def get_status(self) : return self.status
-    
-    def get_data(self) -> dict :
-        data = {
-            'id'        : self.orb_id,
-            'code'      : self.orb_code,
-            'in_game'   : self.is_in_game(),
-            'status'    : self.get_status(),
-            'used'      : self.is_used(),
-            'game_id'   : self.connected_game_id,
-            'game_info' : self.get_game_info(),
-        }
-        return data
-    
-    def get_simple_data(self) -> dict :
-        data = {
-            'id'        : self.orb_id,
-            'code'      : self.orb_code,
-            'in_game'   : self.is_in_game(),
-            'status'    : self.get_status(),
-        }
-        return data
-            
-    def get_game_info(self) -> dict:
-        game = self.get_game()
-        return None if game == None else game.get_info()
-    
-    def get_main_client(self, n = 0) -> dict:
-        return None if (len(self.main_client)-1 < n) else self.main_client[n]
-       
+class Orb(GameClient):
+    """The physical spherical chess board (ESP32)."""
+    type    = ClientType.ORB
+    timeout = ORB_TIMEOUT       # can't answer pings while its motors are moving pieces
+
+    def __init__(self, client, server):
+        super().__init__(client, server)
+        self.orb_id             = None
+        self.orb_code           = None              # code the players type to join (changes on every reconnect)
+        self.status             = OrbStatus.OCCUPIED    # unusable until the orb reports IDLE
+        self.connected_players  = []                # players who joined this orb with its code
+        self.main_players       = []                # those playing the orb's game (2 in a local game)
+
+    def on_identified(self):
+        self.send_packet({'type': MessageType.ORB_CONNECT})
+
+    def on_disconnected(self):
+        if self.orb_id is not None:     # never registered: nothing to clean up
+            self.leave_game()
+
+    # ------------------------------------------------------------------ state
+    def main_player(self):
+        return self.main_players[0] if self.main_players else None
+
     def is_used(self) -> bool:
-        game = self.get_game()
-        is_local_game = False
-        if (game != None) : is_local_game = game.is_local_game()
-        
-        return len(self.main_client) >=2 if (is_local_game) else len(self.main_client) >= 1
-    
-    def is_new_game_possible(self) -> bool :
+        needed = 2 if (self.game is not None and self.game.local_game) else 1
+        return len(self.main_players) >= needed
 
-        return not self.is_used() and self.get_status() == ORB_STATUS.IDLE and not self.is_in_game()
-    
-    def set_code(self, code : str) : 
+    def is_new_game_possible(self) -> bool:
+        return not self.is_used() and self.status == OrbStatus.IDLE and self.game is None
+
+    def get_data(self) -> dict:
+        return {
+            'id'        : self.orb_id,
+            'code'      : self.orb_code,
+            'in_game'   : self.game is not None,
+            'status'    : self.status,
+            'used'      : self.is_used(),
+            'game_id'   : None if self.game is None else self.game.game_id,
+            'game_info' : None if self.game is None else self.game.get_info(),
+        }
+
+    def get_simple_data(self) -> dict:
+        return {
+            'id'        : self.orb_id,
+            'code'      : self.orb_code,
+            'in_game'   : self.game is not None,
+            'status'    : self.status,
+        }
+
+    def set_code(self, code: str):
         self.orb_code = code
-        self.update_clients_orb_data()
-        
-    def set_orb_id(self, orb_id : str)     : 
-        self.orb_id       = orb_id
-        self.name         = orb_id
-        
-    
-    def set_status(self, status : ORB_STATUS)     :
-        self.status = status
-        self.update_clients_orb_data()
-        game = self.get_game()
-        if (game !=None) : game.update_clients_game_info()
-    
-    def update_clients_orb_data(self) :
-        self.server.send_packet_list(self.client_on_orb, {'type' : MESSAGE_TYPE.ORB_DATA, 'orb_data' : self.get_data()})
-        
-    def reset(self) : self.send_packet({'type' : MESSAGE_TYPE.ORB_RESET}) 
-    
-    def set_client_as_main_client(self, client : dict) : 
-        self.main_client.append(client)
-        self.update_clients_orb_data()
-        
-    
-    def connect_client(self, client : dict) :
-        self.client_on_orb.append(client)
-        
-        player = self.get_client_instance(client)
-        player.set_connected_orb_id(self.orb_id)
-        print(self.main_client)
-        player.send_packet({'type' : MESSAGE_TYPE.ORB_DATA, 'orb_data' : self.get_data()})
-        
-    def remove_client(self, client : dict)  :
-        self.main_client    =  remove_client(client, self.main_client)
-        self.client_on_orb  =  remove_client(client, self.client_on_orb)
-        
-        self.update_clients_orb_data()
-    
-    def disconnect_all_client(self) : 
-        for client in self.client_on_orb : self.ask_disconnect(client, reason=DISCONNECT_REASONS.ORB_DISCONNECTED)
-        
+        self.update_players_orb_data()
 
-    def disconnect_from_game(self):
-        self.disconnect_all_client()
-        self.client_on_orb  = []
-        self.main_client    = []
+    def set_status(self, status: OrbStatus):
+        self.status = status
+        self.update_players_orb_data()
+        if self.game is not None:
+            self.game.update_clients_game_info()
+
+    def update_players_orb_data(self):
+        self.server.broadcast(self.connected_players, {'type': MessageType.ORB_DATA, 'orb_data': self.get_data()})
+
+    def reset(self):
+        """Ask the orb to physically put the pieces back to the starting position."""
+        self.send_packet({'type': MessageType.ORB_RESET})
+
+    # ------------------------------------------------------------------ players
+    def add_player(self, player):
+        if player not in self.connected_players:
+            self.connected_players.append(player)
+        player.orb = self
+        player.send_packet({'type': MessageType.ORB_DATA, 'orb_data': self.get_data()})
+
+    def add_main_player(self, player):
+        self.main_players.append(player)
+        self.update_players_orb_data()
+
+    def remove_main_player(self, player):
+        self.main_players = [p for p in self.main_players if p is not player]
+        self.update_players_orb_data()
+
+    def remove_player(self, player):
+        self.main_players       = [p for p in self.main_players if p is not player]
+        self.connected_players  = [p for p in self.connected_players if p is not player]
+        self.update_players_orb_data()
+
+    def kick_players(self):
+        for player in list(self.connected_players):
+            player.kick(DisconnectReason.ORB_DISCONNECTED)
+
+    def leave_game(self):
+        # Game over (or orb gone): send the players back to the menu and reset the physical board.
+        self.kick_players()
+        self.connected_players  = []
+        self.main_players       = []
         self.reset()
-        return super().disconnect_from_game()
+        super().leave_game()

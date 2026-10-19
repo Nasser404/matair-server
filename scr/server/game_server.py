@@ -1,372 +1,470 @@
-from scr.config             import SERVER_PORT, MAX_MISSED_PINGS, PING_INTERVAL, SERVER_VERSION
-from scr.utils              import id_generator, remove_client, CREDIT
-from scr.enums              import MESSAGE_TYPE, DISCONNECT_REASONS, CLIENT_TYPE, INFORMATION_TYPE, ORB_STATUS
-from logging                import INFO
-from json                   import dumps, loads
-from websocket_server       import WebsocketServer, CLOSE_STATUS_NORMAL, DEFAULT_CLOSE_REASON
-from .game                  import Game
-from ..client.game_client   import Game_client
-from ..client.orb           import Orb
-from ..client.player        import Player
-from ..client.viewer        import Viewer
-from time                   import time, sleep
-from threading              import Thread
+import logging
+import os
+import socket
+import struct
+import sys
+from json               import dumps, loads
+from threading          import RLock, Thread
+from time               import time, sleep
 
-class Server :
+from websocket_server   import WebsocketServer, CLOSE_STATUS_NORMAL, DEFAULT_CLOSE_REASON
+
+from scr.config             import (SERVER_HOST, SERVER_PORT, SERVER_VERSION, PING_INTERVAL, CLIENT_TIMEOUT,
+                                    SEND_TIMEOUT, LOG_LEVEL)
+from scr.utils              import id_generator, CREDIT
+from scr.enums              import MessageType, DisconnectReason, ClientType, InformationType, OrbStatus
+from scr.server.game        import Game
+from scr.client.game_client import GameClient
+from scr.client.orb         import Orb
+from scr.client.player      import Player
+from scr.client.viewer      import Viewer
+
+log = logging.getLogger("matair")
+
+CLIENT_CLASSES      = {ClientType.ORB: Orb, ClientType.PLAYER: Player, ClientType.VIEWER: Viewer}
+VIRTUAL_GAME_PREFIX = "VG"      # player codes starting with this join a virtual game (no orb)
+
+
+def configure_logging(level: str = LOG_LEVEL):
+    """Timestamped logs on stdout (same stream as the banner, so Docker keeps them in order)."""
+    logging.basicConfig(level=level, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+                        stream=sys.stdout, force=True)
+    logging.getLogger("websocket_server.websocket_server").addFilter(_LibraryLogFilter())
+
+
+class _LibraryLogFilter(logging.Filter):
+    """websocket_server logs "Client must always be masked." when a connection ends without a close frame
+    (Wi-Fi lost, tab closed, timed-out client): the read returns nothing, the frame header is read as 0
+    and "mask bit = 0" is reported. Say what it really means."""
+    def filter(self, record):
+        if record.getMessage() == "Client must always be masked.":
+            record.msg, record.args = "Connection lost (closed without a WebSocket close frame)", ()
+            record.levelno, record.levelname = logging.INFO, "INFO"
+        return True
+
+
+def _set_send_timeout(sock: socket.socket, seconds: float):
+    """Make a send() blocked for more than `seconds` fail instead of hanging forever. Reads are not affected,
+    so idle connections stay open."""
+    try:
+        if sys.platform == "win32":
+            value = struct.pack("L", int(seconds * 1000))                               # DWORD, milliseconds
+        else:
+            value = struct.pack("ll", int(seconds), int(seconds % 1 * 1_000_000))       # struct timeval
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, value)
+    except (OSError, struct.error):
+        log.debug("Could not set the send timeout", exc_info=True)
+
+
+class LockedWebsocketServer(WebsocketServer):
+    """websocket_server runs every connection in its own thread. Its three internal callbacks (which also
+    use the library's own unlocked client list) run here under one lock, so the server logic below is
+    never executed by two threads at the same time.
+    These are private methods of websocket-server: this relies on the version pinned in requirements.txt (0.6.4)."""
+
+    def __init__(self, lock: RLock, **kwargs):
+        self.lock = lock
+        super().__init__(**kwargs)
+
+    def _new_client_(self, handler):
+        _set_send_timeout(handler.request, SEND_TIMEOUT)
+        with self.lock:
+            super()._new_client_(handler)
+
+    def _client_left_(self, handler):
+        with self.lock:
+            super()._client_left_(handler)
+
+    def _message_received_(self, handler, msg):
+        with self.lock:
+            super()._message_received_(handler, msg)
+
+    def handle_error(self, request, client_address):
+        # Errors raised inside the library itself (our callbacks catch their own): most often something that
+        # isn't a WebSocket client (plain HTTP, port scanner, TLS probe), sometimes a connection broken mid-frame.
+        # The connection is closed either way. One line instead of a full traceback.
+        error = sys.exc_info()[1]
+        detail = f"{type(error).__name__}: {error}" if str(error) else type(error).__name__
+        log.warning("Connection from %s dropped by websocket_server (%s)", client_address[0], detail)
+        log.debug("Traceback", exc_info=True)
+
+
+class Server:
     def __init__(self):
-        self.server             = None
-        self.clients_instance   = {}       # dict linking all client using their client['id'] to their client instance 
-        
-        self.all_client         = []       # store all client currently connected
-        self.players_client     = []       # store all players currently connected
-        self.orbs_client        = []       # store all orbs currently connected
-        self.viewers_client     = []       # store all viewers currently connected
-        self.games              = {}       # dict linking all ongoing games (dict values) to their game_id (dict keys)
-        self.orbs               = {}       # dict linking all orb clients (dict values) to their orb_id (dict keys)
-        
-        # Data handlers function
-        self.data_handlers = {
-            MESSAGE_TYPE.IDENTIFICATION         : self.handle_client_identification,    
-            MESSAGE_TYPE.PONG                   : self.handle_pong,
-            MESSAGE_TYPE.ORB_DATA               : self.handle_orb_data,
-            MESSAGE_TYPE.ORB_CONNECT            : self.handle_orb_connect,
-            MESSAGE_TYPE.PLAYER_CONNECT         : self.handle_player_connect,
-            MESSAGE_TYPE.VIEWER_CONNECT         : self.handle_viewer_connect,
-            MESSAGE_TYPE.ORB_LIST               : self.handle_orb_list,
-            MESSAGE_TYPE.GAME_LIST              : self.handle_game_list,
-            MESSAGE_TYPE.ASK_MOVE               : self.handle_move_asked,
-            MESSAGE_TYPE.ORB_NEW_GAME           : self.handle_orb_new_game,
-            MESSAGE_TYPE.ORB_CONTINUE_GAME      : self.handle_orb_continue_game,
-            MESSAGE_TYPE.ORB_END_GAME           : self.handle_orb_end_game,
-            MESSAGE_TYPE.DISCONNECT_FROM_SERVER : self.disconnect_client,
-            MESSAGE_TYPE.GAME_CHAT              : self.handle_game_chat
+        self.lock           = RLock()
+        self.server         = None
+        self.pending        = {}        # client id -> (client, connection time): connected, not identified yet
+        self.clients        = {}        # client id -> Orb / Player / Viewer, in identification order
+        self.orbs_by_id     = {}        # orb_id -> Orb
+        self.games          = {}        # game_id -> Game
+        self.broken_ids     = set()     # clients a send failed to: skipped, dropped at the next ping tick
+
+        # message type -> handler(client, data)
+        self.handlers = {
+            MessageType.IDENTIFICATION         : self.handle_client_identification,
+            MessageType.PONG                   : self.handle_pong,
+            MessageType.ORB_DATA               : self.handle_orb_data,
+            MessageType.ORB_CONNECT            : self.handle_orb_connect,
+            MessageType.PLAYER_CONNECT         : self.handle_player_connect,
+            MessageType.VIEWER_CONNECT         : self.handle_viewer_connect,
+            MessageType.ORB_LIST               : self.handle_orb_list,
+            MessageType.GAME_LIST              : self.handle_game_list,
+            MessageType.ASK_MOVE               : self.handle_move_asked,
+            MessageType.ORB_NEW_GAME           : self.handle_orb_new_game,
+            MessageType.ORB_CONTINUE_GAME      : self.handle_orb_continue_game,
+            MessageType.ORB_END_GAME           : self.handle_orb_end_game,
+            MessageType.DISCONNECT_FROM_SERVER : self.handle_disconnect_request,
+            MessageType.GAME_CHAT              : self.handle_game_chat,
         }
- 
-    
-    def run(self) :
-        # Initialize server
-        print(CREDIT)
-        self.server = WebsocketServer(host="0.0.0.0", port=SERVER_PORT, loglevel=INFO)
+
+    def run(self):
+        print(CREDIT, flush=True)
+        self.server = LockedWebsocketServer(self.lock, host=SERVER_HOST, port=SERVER_PORT, loglevel=logging.WARNING)
         self.server.set_fn_new_client(self.handle_client_connect)
         self.server.set_fn_client_left(self.handle_client_disconnect)
         self.server.set_fn_message_received(self.handle_client_data)
-        
-        # Start ping rhread
-        ping_thread = Thread(target=self.send_ping, daemon=True)      
-        ping_thread.start()
-        
-        # Start server thread
-        self.server.run_forever()
-        
-    def close(self) :
-        # Close the server
-        self.server.shutdown_gracefully()
-        
-        
-    def send_packet(self, client, data : dict) :
-        if client == None : return
-        try :
-            # Serialize data (dict -> string)
-            message = dumps(data)
-            # Send data
-            self.server.send_message(client, message) 
-        except : pass
-        #print(f"Sending : {message}")
-    
-    def send_packet_list(self, client_list : list, data : dict) :
-        # Serialize data (dict -> string)
-        message = dumps(data)
-        
-        for client in client_list : 
-            if client == None : continue
-            try :
-                # Send data
-                self.server.send_message(client, message)
-            except :pass
-        #print(f"Sending to list : {message}")    
-        
-        
-    def handle_client_connect(self, client, server) :
-        
-        # Tell newly connected client to identify (player, orb, viewer)
-        self.send_packet(client, {"type" : MESSAGE_TYPE.IDENTIFICATION, "server_ver" : SERVER_VERSION})
-        self.all_client.append(client)
-        
-        #print(f"NEW CLIENT WITH ID : {client['id']} CONNECTED !")
-        
-        
-    def handle_client_disconnect(self, client, server) :
-        
-        client_instance = self.get_client_instance(client)
-        if (client_instance != None) :
-            # run disconnected_from_server method of client instance of disconnected client
-             client_instance.disconnected_from_server()   
-        
-        # remove client from all list
-        self.remove_client_ref(client)
+        log.info("Mat@ir server %s listening on %s:%d", SERVER_VERSION, SERVER_HOST, SERVER_PORT)
 
-    def disconnect_client(self, client, data=None, reason = DISCONNECT_REASONS.NO_REASON) :
-        if (client == None) : return
-        try :
-            # Try to disconnect client by sending close request to client (to try gracefully ending connection with client) 
-            self.send_packet(client, data={'type' : MESSAGE_TYPE.DISCONNECT_REASON, 'reason' : reason})
-            client["handler"].send_close(CLOSE_STATUS_NORMAL, DEFAULT_CLOSE_REASON)   
-        except : pass
-        
-        
-    def terminate_client(self, client) :
-        if (client == None) : return
-        # Abruptly close connection with client
+        Thread(target=self.ping_loop, name="ping", daemon=True).start()
+        self.server.run_forever()
+
+    # ------------------------------------------------------------------ sending
+    def send_packet(self, client, data: dict):
+        if client is None or client['id'] in self.broken_ids:
+            return
+        try:
+            # Serialize data (dict -> string) and send it
+            self.server.send_message(client, dumps(data))
+        except Exception:
+            self._send_failed(client)
+
+    def send_packet_list(self, client_list: list, data: dict):
+        # Serialize data (dict -> string) once
+        message = dumps(data)
+        for client in client_list:
+            if client is None or client['id'] in self.broken_ids:
+                continue
+            try:
+                self.server.send_message(client, message)
+            except Exception:
+                self._send_failed(client)
+
+    def _send_failed(self, client):
+        # The socket is dead, or the client stopped reading and the send timed out (possibly halfway through a
+        # frame). Either way nothing more can be sent to it: skip it from now on, the ping tick drops it.
+        log.debug("Could not send to %s", self.label(client), exc_info=True)
+        if client['id'] not in self.broken_ids:
+            self.broken_ids.add(client['id'])
+            log.info("Sending to %s failed, it will be dropped", self.label(client))
+
+    def broadcast(self, game_clients, data: dict):
+        """send_packet_list for Orb / Player / Viewer objects."""
+        self.send_packet_list([game_client.client for game_client in game_clients], data)
+
+    def disconnect_client(self, client, reason: DisconnectReason = DisconnectReason.NO_REASON):
+        """Graceful disconnect: tell the client why, then send a close frame."""
+        if client is None or client['id'] in self.broken_ids:
+            return
+        self.send_packet(client, {'type': MessageType.DISCONNECT_REASON, 'reason': reason})
+        if client['id'] in self.broken_ids:     # that send just failed: don't wait again for the close frame
+            return
+        try:
+            client["handler"].send_close(CLOSE_STATUS_NORMAL, DEFAULT_CLOSE_REASON)
+        except Exception:
+            self._send_failed(client)
+
+    def terminate_client(self, client):
+        """Abruptly close a connection (no close frame). Its cleanup runs right away, through finish()."""
         handler = client['handler']
         handler.keep_alive = False
         handler.finish()
+        try:
+            # close() alone doesn't close the socket while the reader thread's file object holds it:
+            # shutdown() really ends the connection, so the reader thread and the peer both notice.
+            handler.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         handler.connection.close()
-    
-         
-    def remove_client_ref(self, client) :
-        if (client == None) : return
-        
-        # Remove client from all list and dict
-        print(f"removing client ref {client}")
-        if client['id'] in self.clients_instance.keys() :  del self.clients_instance[client['id']]
-        self.orbs_client   = remove_client(client, self.orbs_client)
-        self.viewers_client= remove_client(client, self.viewers_client)
-        self.players_client= remove_client(client, self.players_client)
-        self.all_client    = remove_client(client, self.all_client)
-        
-        
-    def handle_client_data(self, client, server, message) :
-        if client == None : return
-        # If data received was not from a known connected client, return
-        if (client['id'] not in [_client_['id'] for _client_ in self.all_client]) : return
-      
-        # Remove null bytes
-        message     = message.strip().rstrip("\x00") 
-        # Parse date (string -> dict)
-        data        = loads(message)
-        
-        # Run method corresponding to the type of data received (ENUM MESSAGE_TYPE)
-        data_type   = data['type']
-        self.data_handlers[data_type](client, data)    
-        
-        if (data_type != MESSAGE_TYPE.PONG): print(f"RECEIVED : {data}")
-        
-        
-    def get_client_instance(self, client)-> Game_client :
-        # Get client instance (orb class, player class or viewer class)
-        return None if (client == None) else self.clients_instance.get(client['id'], None)
-    
-    
-    def send_ping(self) :
-        print("\nPING THREAD STARTED\n")
-        while True:
-            try :
+
+    # ------------------------------------------------------------------ connection events
+    def label(self, client) -> str:
+        game_client = self.clients.get(client['id'])
+        return str(game_client) if game_client is not None else f"client#{client['id']}"
+
+    def client_as(self, client, cls=GameClient):
+        """The client's Orb / Player / Viewer object, or None if it isn't identified as a `cls`."""
+        game_client = self.clients.get(client['id'])
+        return game_client if isinstance(game_client, cls) else None
+
+    def forget(self, game_client: GameClient):
+        """Remove a client from the registries (an orb only if the entry is still its own)."""
+        self.clients.pop(game_client.id, None)
+        if isinstance(game_client, Orb) and self.orbs_by_id.get(game_client.orb_id) is game_client:
+            del self.orbs_by_id[game_client.orb_id]
+
+    def handle_client_connect(self, client, server):
+        try:
+            self.pending[client['id']] = (client, time())
+            # Tell newly connected client to identify (player, orb, viewer)
+            self.send_packet(client, {"type": MessageType.IDENTIFICATION, "server_ver": SERVER_VERSION})
+        except Exception:
+            log.exception("Error while accepting client#%s", client['id'])
+
+    def handle_client_disconnect(self, client, server):
+        if client is None:
+            return      # second finish() of a terminated connection: already cleaned up
+        self.pending.pop(client['id'], None)
+        game_client = self.clients.get(client['id'])
+        if game_client is not None:
+            log.info("%s disconnected", game_client)
+            try:
+                game_client.on_disconnected()
+            except Exception:
+                log.exception("Error while cleaning up %s", game_client)
+            finally:
+                self.forget(game_client)
+        self.broken_ids.discard(client['id'])   # only now: its own cleanup must not try to send to it either
+
+    def handle_client_data(self, client, server, message):
+        if client is None:
+            return
+        # Remove null bytes, parse data (string -> dict). Bad input is ignored: nothing has been touched yet.
+        message = message.strip().rstrip("\x00")
+        try:
+            data = loads(message) if message else None
+        except (ValueError, RecursionError):
+            data = None
+        msg_type = data.get('type') if isinstance(data, dict) else None
+        handler  = self.handlers.get(msg_type) if isinstance(msg_type, (int, float)) else None
+        if handler is None:
+            log.warning("Ignoring invalid message from %s: %.200r", self.label(client), message)
+            return
+
+        game_client = self.clients.get(client['id'])
+        if game_client is not None:
+            game_client.last_response = time()      # any valid message proves the client is alive
+        if msg_type != MessageType.PONG:
+            log.info("%s -> %s", self.label(client), data)
+
+        try:
+            handler(client, data)
+        except Exception:
+            # Unexpected: close this connection (its cleanup repairs the state) instead of guessing.
+            log.exception("Error while handling %s from %s, closing its connection", data, self.label(client))
+            self.terminate_client(client)
+
+    # ------------------------------------------------------------------ ping / timeouts
+    def ping_loop(self):
+        log.info("Ping thread started (every %ss)", PING_INTERVAL)
+        try:
+            while True:
                 sleep(PING_INTERVAL)
-                current_time = time()
-                
-                disconnected_clients = []
+                try:
+                    with self.lock:
+                        self.ping_tick()
+                except Exception:
+                    log.exception("Ping tick failed")
+        finally:
+            # Unreachable in theory. Without this thread nobody is pinged or timed out any more, so exit and
+            # let Docker (restart: unless-stopped) start a fresh server instead of running half-dead.
+            log.critical("Ping thread stopped, exiting")
+            os._exit(1)
 
-                for client_id, client_instance in self.clients_instance.items():  
-                    # get client last ping response
-                    last_response = client_instance.last_response
+    def ping_tick(self):
+        now = time()
+        to_drop = []
+        for client, connected_at in list(self.pending.values()):
+            if client['id'] in self.broken_ids:
+                to_drop.append(client)
+            elif now - connected_at > CLIENT_TIMEOUT:
+                log.info("client#%s never identified, dropping it", client['id'])
+                to_drop.append(client)
+        for game_client in list(self.clients.values()):
+            if game_client.id in self.broken_ids:
+                to_drop.append(game_client.client)
+            elif now - game_client.last_response > game_client.timeout:
+                log.info("%s timed out", game_client)
+                to_drop.append(game_client.client)
+            else:
+                game_client.send_packet({'type': MessageType.PING})
 
-                    if current_time - last_response > PING_INTERVAL * MAX_MISSED_PINGS:
-                        # if client last ping response exceed a certain a time, timeout the client
-                        print(f"Client {client_id} timed out")
-                        disconnected_clients.append(client_instance.client)
-                    else:
-                        # Send ping to client
-                        try:
-                            client_instance.send_packet({'type' : MESSAGE_TYPE.PING})
-                        except Exception:
-                            disconnected_clients.append(client_instance.client)
+        for client in to_drop:
+            self.terminate_client(client)
+        # keep only the ids still connected (one may have broken during this tick's cleanup: next tick)
+        self.broken_ids &= set(self.clients) | set(self.pending)
 
-                for client in disconnected_clients:
-                    self.terminate_client(client)
-                    
-            except Exception as e:
-                print(f"[PING] Unexpected error in ping thread: {e}")
-                time.sleep(1)
-                
-    def handle_pong(self, client, data) :
-        # response to ping received, update client last ping response
-        client_instance = self.get_client_instance(client) 
-        if client_instance != None :
-            client_instance.last_response = time()     
-       
-    def create_game(self, game_id = id_generator(), local_game = False, virtual_game = False) -> Game:
-        self.games[game_id] = Game(self, game_id, local_game, virtual_game)
-        
-        # send new game list to all viewer connected
-        self.send_packet_list(self.viewers_client, {'type' : MESSAGE_TYPE.GAME_LIST, 'game_info_list' : self.get_game_list()})
-        return self.games[game_id]
-    
-    def close_game(self, game_id) :
-        if (game_id in self.games) :
-            # close game
-            print(f"closing game {game_id}")
-            del self.games[game_id]
-            
-            # send new game list to all viewer connected
-            self.send_packet_list(self.viewers_client, {'type' : MESSAGE_TYPE.GAME_LIST, 'game_info_list' : self.get_game_list()})
-        
-    def get_game_list(self) :
-            game_info_list = []
-            for game in self.games.values() :
-                game_info_list.append(game.get_info())
-            return game_info_list            
-            
-    def handle_game_list(self, client, data) :
-        self.send_packet(client, {'type' : MESSAGE_TYPE.GAME_LIST, 'game_info_list' : self.get_game_list()})
+    # ------------------------------------------------------------------ games
+    def new_game_id(self) -> str:
+        game_id = id_generator()
+        while game_id in self.games:
+            game_id = id_generator()
+        return game_id
 
-    def handle_move_asked(self, client, data) :
-        game_id = data['game_id']
-        game = self.games.get(game_id, None)
-        if (game == None) : self.disconnect_client(client)
-        else : game.move_asked(client, data) 
+    def create_game(self, game_id: str, local_game: bool = False, virtual_game: bool = False) -> Game:
+        game = Game(self, game_id, local_game, virtual_game)
+        self.games[game_id] = game
+        log.info("Game %s created (%s)", game_id, "virtual" if virtual_game else "local" if local_game else "2 orbs")
+        self.send_game_list_to_viewers()
+        return game
 
-    
-    def handle_client_identification(self, client, data : dict) :
-        print(data)
-        identifier = data['identifier']
-        # create and link a client instance (orb, player or viewer) to the client based on the identifier received from the client
-        match identifier :
-            case CLIENT_TYPE.ORB : 
-                self.orbs_client.append(client)
-                self.clients_instance[client['id']] = Orb(client, self)
-            case CLIENT_TYPE.PLAYER :
-                self.players_client.append(client)
-                self.clients_instance[client['id']] = Player(client, self)
-            case CLIENT_TYPE.VIEWER :
-                self.viewers_client.append(client)
-                self.clients_instance[client['id']] = Viewer(client, self)
-                
-        client_instance = self.get_client_instance(client)
-        #run client instance connected_to_server() method
-        client_instance.connected_to_server()
-    
+    def remove_game(self, game: Game):
+        if self.games.get(game.game_id) is not game:
+            return
+        log.info("Game %s closed", game.game_id)
+        del self.games[game.game_id]
+        self.send_game_list_to_viewers()
 
+    def get_game_list(self) -> list:
+        return [game.get_info() for game in self.games.values()]
 
-    def handle_player_connect(self, client, data) :
+    def send_game_list_to_viewers(self):
+        viewers = [c for c in self.clients.values() if isinstance(c, Viewer)]
+        self.broadcast(viewers, {'type': MessageType.GAME_LIST, 'game_info_list': self.get_game_list()})
+
+    # ------------------------------------------------------------------ message handlers
+    def handle_client_identification(self, client, data: dict):
+        identifier = data.get('identifier')
+        cls = CLIENT_CLASSES.get(identifier) if isinstance(identifier, (int, float)) else None
+        if cls is None:
+            log.warning("%s sent an unknown identifier %r", self.label(client), identifier)
+            return
+
+        previous = self.clients.get(client['id'])
+        if previous is not None:        # same connection identifying again: start over, like a new connection
+            log.info("%s identifies again", previous)
+            try:
+                previous.on_reidentified()
+            finally:
+                self.forget(previous)
+
+        self.pending.pop(client['id'], None)
+        game_client = cls(client, self)
+        self.clients[client['id']] = game_client
+        log.info("%s connected from %s", game_client, client['address'][0])
+        game_client.on_identified()
+
+    def handle_pong(self, client, data):
+        pass    # last_response is refreshed for every message
+
+    def handle_disconnect_request(self, client, data):
+        self.disconnect_client(client)
+
+    def handle_orb_connect(self, client, data):
+        orb = self.client_as(client, Orb)
+        if orb is None:
+            return
+        orb_id, orb_code = data['orb_id'], data['orb_code']
+
+        # The ESP32 often reconnects before its old connection has timed out: the old one is dead, drop it now.
+        previous = self.orbs_by_id.get(orb_id)
+        if previous is not None and previous is not orb:
+            log.warning("%s reconnected as %s, dropping the old connection", previous, orb)
+            self.terminate_client(previous.client)
+        # Same connection announcing a different id: forget the old one.
+        if orb.orb_id is not None and self.orbs_by_id.get(orb.orb_id) is orb:
+            del self.orbs_by_id[orb.orb_id]
+
+        orb.orb_id = orb_id
+        orb.name = orb_id
+        orb.set_code(orb_code)
+        self.orbs_by_id[orb_id] = orb
+
+    def handle_orb_data(self, client, data):
+        orb = self.client_as(client, Orb)
+        if orb is None:
+            return
+        orb.set_status(data['status'])
+        orb.set_code(data['orb_code'])
+
+    def handle_player_connect(self, client, data):
+        player = self.client_as(client, Player)
+        if player is None:
+            return
         player_orb_code = data['player_orb_code']
-        player_name     = data['player_name']
-        
-        player = self.get_client_instance(client)
-        player.set_name(player_name)
-        
-        ###################################### VIRTUAL GAME #############################
-        if player_orb_code[0:2] == "VG":                                                        # IF CODE START WITH VG
-            
-            # GET GAME IF GAME EXIST OR CREATE NEW GAME
-            new_game = self.create_game(player_orb_code, False, True) if (self.games.get(player_orb_code, None) == None) else self.games.get(player_orb_code) 
-            
-            if (new_game.game_joinable()) : new_game.connect_client(client)                     # IF GAME JOINABLE CONNECT PLAYER TO GAME
-            else : self.disconnect_client(client, reason=DISCONNECT_REASONS.GAME_NOT_JOINABLE)  # IF GAME NOT JOINABLE DISCONNECT CLIENT 
-            return                                                                              # EXIT FUNCTION
-        #################################################################################
-        
-        player_orb = None
-        # TRY TO FIND THE ORB CORRESPONDING TO THE ORB CODE THE PLAYER ENTERED
-        for orb_client in self.orbs_client :
-            orb = self.get_client_instance(orb_client)
-            orb_code = orb.get_code()
-            if (orb_code == player_orb_code) :
-                player_orb = orb
-                break
-        
-        if (player_orb!=None) : player_orb.connect_client(client)                  # IF THE ORB CODE CORRESPOND TO A ORB, CONNECT PLAYER TO ORB
-        else : self.disconnect_client(client, reason=DISCONNECT_REASONS.INVALID_ORB_CODE) # ELSE DISCONNECT CLIENT
-    
-    def handle_orb_connect(self, client, data) :
-        orb_id = data['orb_id']
-        orb_code = data['orb_code']
-        orb_board = data['orb_board']
-        
-        orb = self.get_client_instance(client)
-        orb.set_orb_id(orb_id)
-        orb.set_code(orb_code)
+        player.name     = data['player_name']
 
-        
-        self.orbs[orb_id] = client # ADD SELF TO LIST OF ORBS
-        
-    def handle_orb_data(self, client, data) :
-        orb         = self.get_client_instance(client)
-        status      = data['status']
-        orb_code    = data['orb_code']
-        orb.set_status(status)
-        orb.set_code(orb_code)
-        
-    def handle_orb_list(self, client, data) :
-        orb_list = []
-        for orb_client in self.orbs_client :
-            orb = self.get_client_instance(orb_client)
-            if (orb.is_new_game_possible()) : orb_list.append(orb.get_simple_data())
-        self.send_packet(client, {'type': MESSAGE_TYPE.ORB_LIST, 'orb_list' : orb_list})
-        
-    def handle_orb_new_game(self, client, data) :
-        orb1_id = data['id1']
-        orb2_id = data['id2']
-        
-        local_game = orb1_id == orb2_id
-        
-        orb1_client = self.orbs.get(orb1_id, None)
-        orb2_client = self.orbs.get(orb2_id, None)
-        
-        orb1_instance = self.get_client_instance(orb1_client)
-        orb2_instance = self.get_client_instance(orb2_client)
-        
-    
-        if (orb1_instance!=None) and (orb2_instance!=None) : # THE TWO GIVEN ORB ID ARE VALID
-            if (orb1_instance.is_new_game_possible()) and (orb2_instance.is_new_game_possible()) : 
-                print("\n\n\nGAME IS POSSIBLE")
-                game = self.create_game(id_generator(), local_game, False)
-                orb1_instance.set_client_as_main_client(client)
-                game.connect_client(orb1_client)
-                if (not local_game) : game.connect_client(orb2_client)
-                game.connect_client(client)
-                return # IF COULD CREATE GAME, EXIT FUNCTION HERE
-        
-        #IF COULDNT CREATE GAME SEND INFORMATION TO CLIENT WHO TRIED THAT HIS ATTEMPT HAS FAILED
-        self.send_packet(client, {'type' : MESSAGE_TYPE.INFORMATION, 'information' : INFORMATION_TYPE.ORB_NOT_READY})
-           
-    
-    def handle_orb_continue_game(self, client, data) :
-        orb_id          = data['id']
-        orb_client      = self.orbs.get(orb_id, None)
-        orb_instance    = self.get_client_instance(orb_client)
-        
-        if (orb_instance!=None) :
-            if (not orb_instance.is_used()) :
-                orb_instance.set_client_as_main_client(client)
-                game = orb_instance.get_game()
-                game.connect_client(client)
-            
+        if player_orb_code.startswith(VIRTUAL_GAME_PREFIX):
+            game = self.games.get(player_orb_code)
+            if game is None:
+                game = self.create_game(player_orb_code, virtual_game=True)
+            if game.is_joinable():
+                game.connect_client(player)
+            else:
+                self.disconnect_client(client, reason=DisconnectReason.GAME_NOT_JOINABLE)
+            return
 
-    def handle_orb_end_game(self, client, data) :
-        orb_id          = data['id']
-        orb_client      = self.orbs.get(orb_id, None)
-        orb_instance    = self.get_client_instance(orb_client)
-        
-        if (orb_instance!=None) and (orb_instance.get_status() == ORB_STATUS.IDLE) : # IF ORB IS FREE AND VALID
-            if (orb_instance.is_in_game()) :
-                game = orb_instance.get_game()
-                game.close()
-                return#  IF COULD CLOSE GAME, EXIT FUNCTION HERE
-        
-        #IF COULDNT CLOSE GAME SEND INFORMATION TO CLIENT WHO TRIED
-        self.send_packet(client, {'type' : MESSAGE_TYPE.INFORMATION, 'information' : INFORMATION_TYPE.ORB_NOT_READY})
-    
-    def handle_viewer_connect(self, client, data) :
-        # send game list
-        game_id = data['game_id']
-        game = self.games.get(game_id, None)
-        if (game == None) : self.disconnect_client(client)
-        else : game.connect_client(client)
-    
-    def handle_game_chat(self, client, data) :
-        game_id = data['game_id']
+        orb = next((orb for orb in self.orbs_by_id.values() if orb.orb_code == player_orb_code), None)
+        if orb is not None:
+            orb.add_player(player)
+        else:
+            self.disconnect_client(client, reason=DisconnectReason.INVALID_ORB_CODE)
+
+    def handle_viewer_connect(self, client, data):
+        game = self.games.get(data['game_id'])
+        if game is None:
+            self.disconnect_client(client)
+            return
+        viewer = self.client_as(client, Viewer)
+        if viewer is not None:
+            game.connect_client(viewer)
+
+    def handle_orb_list(self, client, data):
+        orb_list = [orb.get_simple_data() for orb in self.orbs_by_id.values() if orb.is_new_game_possible()]
+        self.send_packet(client, {'type': MessageType.ORB_LIST, 'orb_list': orb_list})
+
+    def handle_game_list(self, client, data):
+        self.send_packet(client, {'type': MessageType.GAME_LIST, 'game_info_list': self.get_game_list()})
+
+    def handle_move_asked(self, client, data):
+        game = self.games.get(data['game_id'])
+        if game is None:
+            self.disconnect_client(client)
+            return
+        game_client = self.client_as(client)
+        if game_client is not None:
+            game.move_asked(game_client, data)
+
+    def handle_orb_new_game(self, client, data):
+        player = self.client_as(client, Player)
+        if player is None:
+            return
+        orb1 = self.orbs_by_id.get(data['id1'])
+        orb2 = self.orbs_by_id.get(data['id2'])
+        local_game = data['id1'] == data['id2']
+
+        if orb1 is not None and orb2 is not None and orb1.is_new_game_possible() and orb2.is_new_game_possible():
+            game = self.create_game(self.new_game_id(), local_game=local_game)
+            orb1.add_main_player(player)
+            game.connect_client(orb1)
+            if not local_game:
+                game.connect_client(orb2)
+            game.connect_client(player)
+            return
+
+        # couldn't create the game: tell the player
+        self.send_packet(client, {'type': MessageType.INFORMATION, 'information': InformationType.ORB_NOT_READY})
+
+    def handle_orb_continue_game(self, client, data):
+        # a second player joins the game running on an orb (local game), or a player comes back to it
+        player = self.client_as(client, Player)
+        orb    = self.orbs_by_id.get(data['id'])
+        if player is None or orb is None or orb.game is None or orb.is_used() or player in orb.main_players:
+            return
+        orb.add_main_player(player)
+        orb.game.connect_client(player)
+
+    def handle_orb_end_game(self, client, data):
+        orb = self.orbs_by_id.get(data['id'])
+        if orb is not None and orb.status == OrbStatus.IDLE and orb.game is not None:
+            orb.game.close()
+            return
+        # orb busy or not in a game: tell the client
+        self.send_packet(client, {'type': MessageType.INFORMATION, 'information': InformationType.ORB_NOT_READY})
+
+    def handle_game_chat(self, client, data):
+        game    = self.games.get(data['game_id'])
         message = data['message']
-        game = self.games.get(game_id, None)
-        if (game == None) : self.disconnect_client(client)
-        else : game.add_message(message)
-        
+        if game is None:
+            self.disconnect_client(client)
+        else:
+            game.add_message(message)

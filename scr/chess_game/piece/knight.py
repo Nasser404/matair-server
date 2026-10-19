@@ -1,26 +1,13 @@
 from scr.chess_game.piece.piece_type    import Piece
-from scr.enums                          import PIECE_COLOR, PIECE_TYPE
-from scr.utils                          import wrap_pos
+from scr.enums                          import PieceType
 
-class Knight(Piece) :
-    def __init__(self, pos, color, board):
-        super().__init__("Knight", pos, PIECE_TYPE.KNIGHT, color, board)
-        self.string = "N" if color == PIECE_COLOR.BLACK else "n"
-        
-        
-    def check_moves(self) :
-        self.moves = []
-        
-        x = self.pos[0]
-        y = self.pos[1]
-        
-        possible_moves = [
-            [x + 2, y + self.forward], [x - 2, y + self.forward],
-            [x + 2, y - self.forward], [x - 2, y - self.forward],
-            [x + 1, y + 2 * self.forward], [x - 1, y + 2 * self.forward],
-            [x + 1, y - 2 * self.forward], [x - 1, y - 2 * self.forward],
-        ] 
-        
-        for square in possible_moves :
-            if (not self.on_team(square)) : self.add_move(square)
-        return self.moves
+KNIGHT_JUMPS = ((2, 1), (-2, 1), (2, -1), (-2, -1), (1, 2), (-1, 2), (1, -2), (-1, -2))
+
+
+class Knight(Piece):
+    name   = "Knight"
+    symbol = "n"
+    type   = PieceType.KNIGHT
+
+    def check_moves(self):
+        return self._jump(KNIGHT_JUMPS)
